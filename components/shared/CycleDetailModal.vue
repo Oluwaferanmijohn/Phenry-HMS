@@ -81,7 +81,12 @@ async function saveDay(day: number) {
       note: draftNotes.value || 'No additional notes.',
     })
     if (error) throw error
-    await supabase.from('cycles').update({ cycle_day: day + 9 }).eq('id', props.cycleId)
+    // cycle_day tracks the actual stimulation day being logged — it must
+    // equal `day`, not day+9. The +9 offset meant Day 1's first entry
+    // jumped the visible Cycle Day straight to 10 (skipping 2–9 entirely),
+    // which is clinically meaningful and shown on 6 different screens.
+    await supabase.from('cycles').update({ cycle_day: day }).eq('id', props.cycleId)
+    if (cycle.value) cycle.value.cycle_day = day
     logs.value = [...logs.value, { day, medication_administered: draftMed.value, vitals_logged: draftVit.value, note: draftNotes.value }]
   })
 }

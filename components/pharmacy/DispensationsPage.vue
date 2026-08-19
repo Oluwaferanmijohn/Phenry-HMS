@@ -46,8 +46,11 @@
 import { ref } from 'vue'
 import { fmtDate } from '~/composables/useFormat'
 import { useSyncQueue } from '~/composables/useSyncQueue'
+import { useToast } from '~/composables/useToast'
+import { matchInventoryItem } from '~/composables/useInventoryMatch'
 
 const { queueOrRun } = useSyncQueue()
+const { toast } = useToast()
 const supabase = useSupabaseClient()
 
 const prescriptions = ref<any[]>([])
@@ -70,6 +73,20 @@ async function dispense(r: any) {
   await queueOrRun(`${r.medication} dispensed to ${r.patient_name}`, async () => {
     const { error } = await supabase.from('prescriptions').update({ status: 'Dispensed' }).eq('id', r.id)
     if (error) throw error
+
+    // Prescriptions carry no qty/inventory FK, so this deducts 1 unit per
+    // dispensed prescription against whichever inventory item's name
+    // matches the medication text.
+    const inv = matchInventoryItem(inventory.value, r.medication)
+    if (inv) {
+      const newQty = Math.max(0, inv.current_qty - 1)
+      const { error: invErr } = await supabase.from('pharmacy_inventory').update({ current_qty: newQty }).eq('id', inv.id)
+      if (invErr) throw invErr
+      inv.current_qty = newQty
+    } else {
+      toast(`No inventory match for "${r.medication}" — stock not adjusted`, 'warn')
+    }
+
     r.status = 'Dispensed'
   })
 }
@@ -79,8 +96,14 @@ async function approve(r: any) {
     const { error } = await supabase.from('requisitions').update({ status: 'Approved & Dispensed' }).eq('id', r.id)
     if (error) throw error
     for (const it of r.items || []) {
-      const inv = inventory.value.find((i) => i.name === it.name)
-      if (inv) await supabase.from('pharmacy_inventory').update({ current_qty: Math.max(0, inv.current_qty - Number(it.qty || 1)) }).eq('id', inv.id)
+      const inv = matchInventoryItem(inventory.value, it.name)
+      if (inv) {
+        const newQty = Math.max(0, inv.current_qty - Number(it.qty || 1))
+        await supabase.from('pharmacy_inventory').update({ current_qty: newQty }).eq('id', inv.id)
+        inv.current_qty = newQty
+      } else {
+        toast(`No inventory match for "${it.name}" — stock not adjusted`, 'warn')
+      }
     }
     r.status = 'Approved & Dispensed'
   })

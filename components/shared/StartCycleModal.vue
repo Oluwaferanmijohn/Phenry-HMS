@@ -60,10 +60,25 @@ async function submit() {
   if (!patientId.value) return
   submitting.value = true
   const providerLabel = ROLE_META[props.role]?.label || props.role
+
+  // Cycle numbering + history. "Eligible" above only excludes patients with
+  // a CURRENTLY active cycle — a returning patient starting their 3rd
+  // attempt after their prior cycles closed is still eligible, and needs
+  // cycle_number to reflect that, not a hardcoded 1. cycles.prior_cycles
+  // jsonb already exists in the schema for exactly this (a per-cycle
+  // summary snapshot) but had never been written to.
+  const { data: priorCycles } = await supabase
+    .from('cycles')
+    .select('cycle_number, type, protocol, start_date, opu_date, transfer_date, outcome, status')
+    .eq('patient_id', patientId.value)
+    .order('cycle_number', { ascending: true })
+  const cycleNumber = (priorCycles?.length || 0) + 1
+
   await queueOrRun(`${type.value} started`, async () => {
     const { error } = await supabase.from('cycles').insert({
       patient_id: patientId.value,
-      cycle_number: 1,
+      cycle_number: cycleNumber,
+      prior_cycles: priorCycles || [],
       protocol: protocol.value,
       type: type.value,
       start_date: startDate.value,

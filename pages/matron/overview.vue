@@ -36,7 +36,7 @@
           </div>
         </div>
         <div class="card">
-          <div class="card-header"><h3><Icon name="bed" :size="15" /> Recovery Beds</h3><span style="font-size:11px; display:flex; gap:8px;"><span style="color:var(--green-600);">● Free</span><span style="color:var(--red-600);">● Used</span></span></div>
+          <div class="card-header"><h3><Icon name="bed" :size="15" /> Recovery Beds</h3><span style="font-size:11px; display:flex; gap:8px;"><span style="color:var(--green-600);">● Free</span><span style="color:var(--amber-600);">● Reserved</span><span style="color:var(--red-600);">● Occupied</span></span></div>
           <div class="card-body">
             <div class="grid grid-4" style="gap:8px;">
               <div
@@ -44,7 +44,7 @@
                 :key="b.id"
                 class="card-pad"
                 style="text-align:center; padding:10px 4px;"
-                :style="{ border: `1.5px solid ${b.status === 'Free' ? 'var(--green-500)' : 'var(--red-500)'}`, borderRadius: 'var(--radius-sm)', background: b.status === 'Free' ? 'var(--green-50)' : 'var(--red-50)' }"
+                :style="{ border: `1.5px solid ${bedColor(b).border}`, borderRadius: 'var(--radius-sm)', background: bedColor(b).bg }"
               >
                 <div style="font-size:11px; font-weight:700;">{{ b.id }}</div>
                 <div style="font-size:9.5px; color:var(--text-500);">{{ b.status === 'Free' ? 'Free' : b.patient_name }}</div>
@@ -86,5 +86,16 @@ await useAsyncData('matron-overview', async () => {
   return true
 })
 
-const freeBeds = computed(() => beds.value.filter((b) => b.status === 'Free').length)
+function bedColor(b: any) {
+  if (b.status === 'Free') return { border: 'var(--green-500)', bg: 'var(--green-50)' }
+  if (b.status === 'Reserved') return { border: 'var(--amber-500)', bg: 'var(--amber-50)' }
+  return { border: 'var(--red-500)', bg: 'var(--red-50)' }
+}
+
+// "Available" means physically free right now. A 'Reserved' bed is
+// earmarked for a future-dated procedure but nobody's in it yet, so it
+// should still count as available capacity today — only 'Occupied' should
+// bring this down (see ScheduleProcedureModal.vue for where the distinction
+// gets set).
+const freeBeds = computed(() => beds.value.filter((b) => b.status !== 'Occupied').length)
 </script>

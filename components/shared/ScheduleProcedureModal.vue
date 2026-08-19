@@ -92,6 +92,16 @@ async function submit() {
   if (!targetPatientId) return
   submitting.value = true
 
+  // A bed only physically has someone in it once the procedure date
+  // arrives — flipping it to 'Occupied' the moment ANY future date is
+  // scheduled (previously every case, since this defaults to tomorrow)
+  // made the ward register read as full when it was physically empty.
+  // Today-or-earlier still occupies the bed now; anything further out only
+  // reserves it (excluded from the picker so it can't be double-booked,
+  // but not counted toward "beds occupied now").
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const isNow = date.value <= todayStr
+
   await queueOrRun(`${procedure.value} scheduled`, async () => {
     const { error } = await supabase.from('surgery_schedule').insert({
       patient_id: targetPatientId,
@@ -109,7 +119,11 @@ async function submit() {
     if (bedId.value) {
       await supabase
         .from('recovery_beds')
-        .update({ status: 'Occupied', occupied_by_patient_id: targetPatientId, occupied_since: new Date().toISOString() })
+        .update(
+          isNow
+            ? { status: 'Occupied', occupied_by_patient_id: targetPatientId, occupied_since: new Date().toISOString(), reserved_for_date: null }
+            : { status: 'Reserved', occupied_by_patient_id: targetPatientId, occupied_since: null, reserved_for_date: date.value }
+        )
         .eq('id', bedId.value)
     }
   })

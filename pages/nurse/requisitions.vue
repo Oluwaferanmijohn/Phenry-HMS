@@ -6,10 +6,10 @@
         <b style="font-size:13px;">New Supply Request</b>
         <div class="field" style="margin-top:12px;"><label>Requesting From</label><input class="input" value="IVF Ward 2" disabled /></div>
         <div v-for="(row, i) in itemRows" :key="i" class="form-row" :style="{ marginTop: i === 0 ? 0 : '10px' }">
-          <select v-model="row.name" class="input"><option>10ml Syringes</option><option>Alcohol Swabs</option><option>Gauze & Dressings</option><option>Cryo-Straws</option></select>
+          <select v-model="row.name" class="input"><option v-for="name in REQUESTABLE_ITEMS" :key="name">{{ name }}</option></select>
           <input v-model.number="row.qty" class="input" type="number" placeholder="Qty" style="max-width:100px;" />
         </div>
-        <button class="btn btn-secondary btn-sm" style="margin-top:8px;" @click="itemRows.push({ name: '10ml Syringes', qty: 1 })"><Icon name="plus" :size="12" /> Add Another Item</button>
+        <button class="btn btn-secondary btn-sm" style="margin-top:8px;" @click="itemRows.push({ name: REQUESTABLE_ITEMS[0], qty: 1 })"><Icon name="plus" :size="12" /> Add Another Item</button>
         <div class="field" style="margin-top:14px;">
           <label>Urgency Level</label>
           <div style="display:flex; flex-direction:column; gap:6px; font-size:12.5px;">
@@ -43,7 +43,16 @@ const supabase = useSupabaseClient()
 const profile = useProfile()
 const { queueOrRun } = useSyncQueue()
 
-const itemRows = ref([{ name: '10ml Syringes', qty: 10 }])
+// Must match pharmacy_inventory.name exactly (see
+// 00000000000011_pharmacy_role.sql's seed data) — Pharmacy's approve flow
+// deducts stock by looking up this exact string, so a name here with no
+// matching inventory row silently skips the deduction. Nurse has no read
+// access to pharmacy_inventory (Pharmacy/Admin only), so this is a
+// hardcoded mirror rather than a live query; keep it in sync if Pharmacy's
+// catalog changes.
+const REQUESTABLE_ITEMS = ['Gonal-F 450 IU', 'Cetrotide 0.25mg', 'Ovidrel 250mcg', 'Progesterone in Oil 50mg/mL']
+
+const itemRows = ref([{ name: REQUESTABLE_ITEMS[0], qty: 10 }])
 const urgency = ref('Routine')
 const recent = ref<any[]>([])
 
@@ -78,7 +87,7 @@ async function submit() {
     if (error) throw error
     await load()
   })
-  itemRows.value = [{ name: '10ml Syringes', qty: 10 }]
+  itemRows.value = [{ name: REQUESTABLE_ITEMS[0], qty: 10 }]
   urgency.value = 'Routine'
 }
 </script>

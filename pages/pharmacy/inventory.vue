@@ -70,9 +70,12 @@ async function logShipment() {
   await queueOrRun(`Shipment logged — ${item.name} +${qty.value}`, async () => {
     const patch: any = { current_qty: item.current_qty + qty.value! }
     if (expiry.value) patch.expiry = expiry.value
+    if (batch.value) patch.batch_number = batch.value
     const { error } = await supabase.from('pharmacy_inventory').update(patch).eq('id', item.id)
     if (error) throw error
     item.current_qty = patch.current_qty
+    if (patch.batch_number) item.batch_number = patch.batch_number
+    if (patch.expiry) item.expiry = patch.expiry
   })
   qty.value = null
   batch.value = ''
