@@ -1,0 +1,22 @@
+# Local Supabase CLI config. For a hosted project, the equivalent settings
+# live in Dashboard → Authentication → Hooks (Custom Access Token) and
+# → Edge Functions (secrets), not in this file.
+
+project_id = "phenry-health"
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+
+# Injects app_role / custom_role_key into every issued JWT — see the
+# migration comment on public.custom_access_token_hook for why this uses
+# app_role instead of the spec's literal `role` claim name.
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/public/custom_access_token_hook"
+
+[edge_runtime]
+enabled = true
+
+[db]
+port = 54322
