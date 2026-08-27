@@ -91,7 +91,15 @@ async function toggleActive(s: any) {
     toast('Could not update access', 'warn')
     return
   }
+  const wasActive = s.active
   s.active = !s.active
+  // The middleware comment this fixes: the block was already enforced, the
+  // event itself just wasn't recorded anywhere. log_audit_event() is safe
+  // to call directly here — it only ever logs the caller's own identity.
+  await supabase.rpc('log_audit_event', {
+    p_action_type: wasActive ? 'Revoked Staff Access' : 'Reinstated Staff Access',
+    p_target: s.full_name,
+  })
   toast(`${s.full_name}'s access ${s.active ? 'reinstated' : 'revoked'}`, s.active ? 'success' : 'warn')
 }
 </script>

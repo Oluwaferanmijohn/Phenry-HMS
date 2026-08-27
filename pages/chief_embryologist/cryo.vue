@@ -18,7 +18,7 @@
     <div class="card">
       <div class="card-header"><h3><Icon name="layers" :size="15" /> Cryo Storage Log</h3></div>
       <table class="data-table">
-        <thead><tr><th>Patient</th><th>Asset</th><th>Straws</th><th>Frozen On</th><th>Location</th></tr></thead>
+        <thead><tr><th>Patient</th><th>Asset</th><th>Straws</th><th>Frozen On</th><th>Location</th><th>Status</th><th></th></tr></thead>
         <tbody>
           <tr v-for="r in records" :key="r.id">
             <td class="cell-strong">{{ r.patient_name }}</td>
@@ -26,6 +26,10 @@
             <td>{{ r.straws }}</td>
             <td class="cell-muted">{{ fmtDate(r.freezing_date) }}</td>
             <td class="cell-muted mono">{{ r.tank_name || '—' }} / {{ r.canister }} / {{ r.position }}</td>
+            <td><Badge :tone="r.status === 'Used' ? 'gray' : 'green'">{{ r.status }}</Badge></td>
+            <td style="text-align:right;">
+              <button v-if="r.status === 'Stored'" class="btn btn-secondary btn-sm" @click="openUse(r)">Use / Remove</button>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -34,19 +38,39 @@
 
     <TankModal v-model="showTank" :tank="activeTank" @saved="load" />
     <CryoLogModal v-model="showLog" :tanks="tanks" @logged="load" />
+
+    <Modal v-model="showUse" title="Log Straws Used">
+      <p v-if="activeRecord" class="cell-muted" style="margin-bottom:12px;">{{ activeRecord.patient_name }} · {{ activeRecord.asset_type }} · {{ activeRecord.straws }} straw(s) currently in storage</p>
+      <div class="field">
+        <label>Straws Used</label>
+        <input v-model="useQty" class="input" type="number" min="1" :max="activeRecord?.straws" />
+        <div class="hint">Leave at the full amount to mark this record fully used; enter fewer to record a partial thaw.</div>
+      </div>
+      <template #footer>
+        <button class="btn btn-secondary" @click="showUse = false">Cancel</button>
+        <button class="btn btn-primary" :disabled="usingRecord" @click="confirmUse"><Icon name="check-circle" :size="13" /> Confirm Usage</button>
+      </template>
+    </Modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
 import { fmtDate } from '~/composables/useFormat'
+import { useToast } from '~/composables/useToast'
 
 const supabase = useSupabaseClient()
+const { toast } = useToast()
 const tanks = ref<any[]>([])
 const records = ref<any[]>([])
 const showTank = ref(false)
 const showLog = ref(false)
 const activeTank = ref<any>(null)
+
+const showUse = ref(false)
+const activeRecord = ref<any>(null)
+const useQty = ref<number | string>(1)
+const usingRecord = ref(false)
 
 async function load() {
   const [tanksRes, recordsRes] = await Promise.all([
@@ -61,5 +85,24 @@ await useAsyncData('chief-cryo', load)
 function openTank(t: any) {
   activeTank.value = t
   showTank.value = true
+}
+
+function openUse(r: any) {
+  activeRecord.value = r
+  useQty.value = r.straws
+  showUse.value = true
+}
+
+async function confirmUse() {
+  if (!activeRecord.value) return
+  usingRecord.value = true
+  const { error } = await supabase.rpc('use_cryo_record', { p_record_id: activeRecord.value.id, p_straws_used: Number(useQty.value) })
+  usingRecord.value = false
+  if (error) {
+    toast(error.message)
+    return
+  }
+  showUse.value = false
+  await load()
 }
 </script>

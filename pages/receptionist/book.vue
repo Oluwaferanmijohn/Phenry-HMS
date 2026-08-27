@@ -12,17 +12,24 @@
         </div>
         <div class="field">
           <label>Seen By</label>
-          <div class="flex gap-14" style="margin-top:2px;">
-            <label class="flex gap-8" style="font-size:13px;"><input v-model="providerRole" type="radio" value="doctor" @change="onProviderChange" /> Doctor <span class="cell-muted">({{ doctorName }})</span></label>
+          <div class="flex gap-14" style="margin-top:2px; flex-wrap:wrap;">
+            <label class="flex gap-8" style="font-size:13px;"><input v-model="providerRole" type="radio" value="doctor" @change="onProviderChange" /> Doctor</label>
+            <select v-if="providerRole === 'doctor'" v-model="selectedDoctorId" class="input" style="max-width:220px;" @change="onProviderChange">
+              <option v-for="d in doctors" :key="d.id" :value="d.id">{{ d.full_name }}</option>
+            </select>
             <label class="flex gap-8" style="font-size:13px;"><input v-model="providerRole" type="radio" value="matron" @change="onProviderChange" /> Matron <span class="cell-muted">({{ matronName }})</span></label>
           </div>
         </div>
         <hr class="hr" />
-        <div class="flex-between" style="margin-bottom:12px;"><b style="font-size:14px;">{{ monthLabel }}</b></div>
+        <div class="flex-between" style="margin-bottom:12px;">
+          <button class="icon-btn" :disabled="atEarliestMonth" @click="prevMonth"><Icon name="chevron-left" :size="14" /></button>
+          <b style="font-size:14px;">{{ monthLabel }}</b>
+          <button class="icon-btn" @click="nextMonth"><Icon name="chevron-right" :size="14" /></button>
+        </div>
         <div class="cal-grid">
           <div class="cal-dow">S</div><div class="cal-dow">M</div><div class="cal-dow">T</div><div class="cal-dow">W</div><div class="cal-dow">T</div><div class="cal-dow">F</div><div class="cal-dow">S</div>
           <div v-for="n in startOffset" :key="'pad' + n" />
-          <div v-for="d in daysInMonth" :key="d" class="cal-day" :class="{ sel: bookingDay === d }" @click="selectDay(d)">{{ d }}</div>
+          <div v-for="d in daysInMonth" :key="d" class="cal-day" :class="{ sel: bookingDay === d, disabled: isPast(d) }" @click="!isPast(d) && selectDay(d)">{{ d }}</div>
         </div>
         <hr class="hr" />
         <b style="font-size:13px;">Available Times</b>
@@ -70,16 +77,48 @@ const { queueOrRun } = useSyncQueue()
 const { toast } = useToast()
 
 const today = new Date()
-const year = today.getFullYear()
-const month = today.getMonth()
-const monthLabel = today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-const startOffset = new Date(year, month, 1).getDay()
-const daysInMonth = new Date(year, month + 1, 0).getDate()
+const todayYear = today.getFullYear()
+const todayMonth = today.getMonth()
+const todayDate = today.getDate()
+
+const viewYear = ref(todayYear)
+const viewMonth = ref(todayMonth)
+const monthLabel = computed(() => new Date(viewYear.value, viewMonth.value, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))
+const startOffset = computed(() => new Date(viewYear.value, viewMonth.value, 1).getDay())
+const daysInMonth = computed(() => new Date(viewYear.value, viewMonth.value + 1, 0).getDate())
+// Booking is for future visits — the earliest navigable month is the
+// current one; there's nothing to book in a past month. Any number of
+// months forward is fine (batching/scheduling routinely happens weeks out).
+const atEarliestMonth = computed(() => viewYear.value === todayYear && viewMonth.value === todayMonth)
+
+function prevMonth() {
+  if (atEarliestMonth.value) return
+  viewMonth.value--
+  if (viewMonth.value < 0) {
+    viewMonth.value = 11
+    viewYear.value--
+  }
+  bookingDay.value = null
+  bookingTime.value = null
+}
+function nextMonth() {
+  viewMonth.value++
+  if (viewMonth.value > 11) {
+    viewMonth.value = 0
+    viewYear.value++
+  }
+  bookingDay.value = null
+  bookingTime.value = null
+}
+function isPast(d: number) {
+  return viewYear.value === todayYear && viewMonth.value === todayMonth && d < todayDate
+}
 
 const patients = ref<any[]>([])
 const patientId = ref('')
 const providerRole = ref<'doctor' | 'matron'>('doctor')
-const doctorProfile = ref<{ id: string; full_name: string } | null>(null)
+const doctors = ref<{ id: string; full_name: string }[]>([])
+const selectedDoctorId = ref('')
 const matronProfile = ref<{ id: string; full_name: string } | null>(null)
 const bookingDay = ref<number | null>(null)
 const bookingTime = ref<string | null>(null)
@@ -87,18 +126,19 @@ const availableTimes = ref<string[]>([])
 const loadingSlots = ref(false)
 const sessionBookings = ref<any[]>([])
 
-const doctorName = computed(() => doctorProfile.value?.full_name || 'Unassigned')
+const doctorName = computed(() => doctors.value.find((d) => d.id === selectedDoctorId.value)?.full_name || 'Unassigned')
 const matronName = computed(() => matronProfile.value?.full_name || 'Unassigned')
 const selectedPatientName = computed(() => patients.value.find((p) => p.patient_id === patientId.value)?.full_name || '')
 
 await useAsyncData('receptionist-book-init', async () => {
-  const [patientsRes, doctorRes, matronRes] = await Promise.all([
+  const [patientsRes, doctorsRes, matronRes] = await Promise.all([
     supabase.rpc('patients_front_desk_directory', { p_search: '' }),
-    supabase.from('profiles').select('id, full_name').eq('role', 'doctor').limit(1).maybeSingle(),
+    supabase.from('profiles').select('id, full_name').eq('role', 'doctor').order('full_name', { ascending: true }),
     supabase.from('profiles').select('id, full_name').eq('role', 'matron').limit(1).maybeSingle(),
   ])
   patients.value = patientsRes.data || []
-  doctorProfile.value = doctorRes.data
+  doctors.value = doctorsRes.data || []
+  selectedDoctorId.value = doctors.value[0]?.id || ''
   matronProfile.value = matronRes.data
   return true
 })
@@ -113,11 +153,11 @@ function onProviderChange() {
 
 const selectedDateStr = computed(() => {
   if (!bookingDay.value) return null
-  return `${year}-${String(month + 1).padStart(2, '0')}-${String(bookingDay.value).padStart(2, '0')}`
+  return `${viewYear.value}-${String(viewMonth.value + 1).padStart(2, '0')}-${String(bookingDay.value).padStart(2, '0')}`
 })
-const currentProvider = computed(() => (providerRole.value === 'doctor' ? doctorProfile.value : matronProfile.value))
+const currentProvider = computed(() => (providerRole.value === 'doctor' ? doctors.value.find((d) => d.id === selectedDoctorId.value) || null : matronProfile.value))
 
-watch([selectedDateStr, providerRole], async ([dateStr]) => {
+watch([selectedDateStr, providerRole, selectedDoctorId], async ([dateStr]) => {
   availableTimes.value = []
   if (!dateStr || !currentProvider.value) return
   loadingSlots.value = true
@@ -138,20 +178,22 @@ async function confirmBooking() {
   const time = bookingTime.value
   const provider = currentProvider.value
   const pName = selectedPatientName.value
+  const targetPatientId = patientId.value
+  const targetProviderRole = providerRole.value
 
   await queueOrRun(`${pName} booked with ${provider.full_name}`, async () => {
     const { data, error } = await supabase
       .from('appointments')
       .insert({
-        patient_id: patientId.value,
-        provider_role: providerRole.value,
+        patient_id: targetPatientId,
+        provider_role: targetProviderRole,
         provider_profile_id: provider.id,
         type: 'Consultation',
         date,
         time,
         duration: 30,
         status: 'Scheduled',
-        room: providerRole.value === 'doctor' ? 'Room 1' : 'Room 2',
+        room: targetProviderRole === 'doctor' ? 'Room 1' : 'Room 2',
       })
       .select()
       .single()

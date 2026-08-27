@@ -71,7 +71,7 @@ await useAsyncData('matron-overview', async () => {
   const todayStr = new Date().toISOString().slice(0, 10)
   const [cyclesRes, surgeryRes, bedsRes, rosterRes] = await Promise.all([
     supabase.from('cycles').select('id', { count: 'exact', head: true }).eq('status', 'Active'),
-    supabase.from('surgery_schedule').select('*, patient_names(full_name), profiles:assigned_provider_id(full_name)').gte('date', todayStr).order('date', { ascending: true }).order('time', { ascending: true }),
+    supabase.from('surgery_schedule').select('*, patient_names(full_name), profiles:assigned_doctor_id(full_name)').gte('date', todayStr).order('date', { ascending: true }).order('time', { ascending: true }),
     supabase.from('recovery_beds').select('*, patient_names:occupied_by_patient_id(full_name)').order('id', { ascending: true }),
     supabase.from('duty_roster').select('*').eq('date', todayStr).maybeSingle(),
   ])

@@ -122,10 +122,15 @@ async function dispense(r: any) {
 async function restock() {
   const item = inventory.value.find((i) => i.id === restockId.value)
   if (!item || !restockQty.value) return
-  await queueOrRun(`${restockQty.value} ${item.unit} of ${item.name} added to stock`, async () => {
-    const { error } = await supabase.from('pharmacy_inventory').update({ current_qty: item.current_qty + restockQty.value! }).eq('id', item.id)
+  const targetItemId = item.id
+  const targetItemName = item.name
+  const targetItemUnit = item.unit
+  const qtyToAdd = restockQty.value
+  const baseQty = item.current_qty
+  await queueOrRun(`${qtyToAdd} ${targetItemUnit} of ${targetItemName} added to stock`, async () => {
+    const { error } = await supabase.from('pharmacy_inventory').update({ current_qty: baseQty + qtyToAdd }).eq('id', targetItemId)
     if (error) throw error
-    item.current_qty += restockQty.value!
+    item.current_qty = baseQty + qtyToAdd
   })
   restockQty.value = null
 }

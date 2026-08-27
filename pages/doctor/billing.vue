@@ -76,9 +76,11 @@ async function loadPatient(patientId: string) {
 }
 
 await useAsyncData('doctor-billing-init', async () => {
+  const route = useRoute()
   const { data } = await supabase.from('patient_names').select('patient_id, full_name').order('full_name', { ascending: true })
   patients.value = data || []
-  if (patients.value[0]) await loadPatient(patients.value[0].patient_id)
+  const startId = (route.query.patient as string) || patients.value[0]?.patient_id
+  if (startId) await loadPatient(startId)
   return true
 })
 
@@ -87,17 +89,23 @@ async function generate() {
   if (!patient.value) return
   submitting.value = true
 
-  await queueOrRun(`Payment plan sent to ${patient.value.full_name}`, async () => {
-    const { data: existing } = await supabase.from('payment_plans').select('id').eq('patient_id', patient.value.patient_id).limit(1).maybeSingle()
+  const targetPatientId = patient.value.patient_id
+  const targetPatientName = patient.value.full_name
+  const targetPackage = billPackage.value
+  const targetTotal = total.value
+  const targetMilestones = milestones.value.map((m) => ({ label: m.label, amount: Number(m.amount || 0) }))
+
+  await queueOrRun(`Payment plan sent to ${targetPatientName}`, async () => {
+    const { data: existing } = await supabase.from('payment_plans').select('id').eq('patient_id', targetPatientId).limit(1).maybeSingle()
 
     let planId = existing?.id
     if (existing) {
-      await supabase.from('payment_plans').update({ package: billPackage.value, total_cost: total.value }).eq('id', existing.id)
+      await supabase.from('payment_plans').update({ package: targetPackage, total_cost: targetTotal }).eq('id', existing.id)
       await supabase.from('payment_milestones').delete().eq('plan_id', existing.id)
     } else {
       const { data: created, error } = await supabase
         .from('payment_plans')
-        .insert({ patient_id: patient.value.patient_id, package: billPackage.value, total_cost: total.value })
+        .insert({ patient_id: targetPatientId, package: targetPackage, total_cost: targetTotal })
         .select()
         .single()
       if (error) throw error
@@ -105,7 +113,7 @@ async function generate() {
     }
 
     const { error: milestonesError } = await supabase.from('payment_milestones').insert(
-      milestones.value.map((m) => ({ plan_id: planId, label: m.label, amount: Number(m.amount || 0), status: 'Upcoming', due_context: 'Scheduled' }))
+      targetMilestones.map((m) => ({ plan_id: planId, label: m.label, amount: m.amount, status: 'Upcoming', due_context: 'Scheduled' }))
     )
     if (milestonesError) throw milestonesError
   })

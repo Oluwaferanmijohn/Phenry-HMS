@@ -43,11 +43,15 @@ watch(
 async function submit() {
   if (!props.appointment) return
   submitting.value = true
-  await queueOrRun(`${props.appointment.patient_name}'s visit moved to ${fmtDate(newDate.value)} ${formatTime12(newTime.value)}`, async () => {
+  const targetAppointmentId = props.appointment.id
+  const targetPatientName = props.appointment.patient_name
+  const targetDate = newDate.value
+  const targetTime = newTime.value
+  await queueOrRun(`${targetPatientName}'s visit moved to ${fmtDate(targetDate)} ${formatTime12(targetTime)}`, async () => {
     const { data, error } = await supabase
       .from('appointments')
-      .update({ date: newDate.value, time: newTime.value, status: 'Scheduled' })
-      .eq('id', props.appointment.id)
+      .update({ date: targetDate, time: targetTime, status: 'Scheduled' })
+      .eq('id', targetAppointmentId)
       .select()
       .single()
     if (error) throw error

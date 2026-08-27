@@ -23,12 +23,13 @@
       </div>
       <div style="display:flex; flex-direction:column; gap:18px;">
         <div class="card">
-          <div class="card-header"><h3><Icon name="users" :size="15" /> Recent Staff Changes</h3><button class="btn btn-primary btn-sm" @click="$router.push('/admin_manager/staff')"><Icon name="plus" :size="12" /> Add Staff</button></div>
+          <div class="card-header"><h3><Icon name="shield" :size="15" /> Recent Staff Changes</h3><button class="btn btn-primary btn-sm" @click="$router.push('/admin_manager/staff')"><Icon name="plus" :size="12" /> Add Staff</button></div>
           <div class="card-body tight">
-            <div v-for="s in recentStaff" :key="s.id" class="list-row">
-              <Avatar :name="s.full_name" :size="30" />
-              <div><div class="main-txt">{{ s.full_name }}</div><div class="sub-txt">{{ roleLabelOf(s) }}</div></div>
-              <div class="side"><Badge :tone="s.active ? 'blue' : 'gray'">{{ s.active ? 'New Hire' : 'Offboarded' }}</Badge></div>
+            <p v-if="!recentStaffChanges.length" class="muted" style="font-size:12px; padding:16px 20px;">No staff changes logged yet.</p>
+            <div v-for="e in recentStaffChanges" :key="e.id" class="list-row">
+              <Avatar :name="e.staff_name" :size="30" />
+              <div><div class="main-txt">{{ e.staff_name }}</div><div class="sub-txt">{{ e.action_type }}{{ e.target ? ' — ' + e.target : '' }}</div></div>
+              <div class="side cell-muted">{{ fmtDate(e.created_at) }}</div>
             </div>
           </div>
         </div>
@@ -47,9 +48,8 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { fmtNaira } from '~/composables/useFormat'
+import { fmtNaira, fmtDate } from '~/composables/useFormat'
 import { useSyncQueue } from '~/composables/useSyncQueue'
-import { ROLE_META } from '~/composables/useRoleMeta'
 
 const supabase = useSupabaseClient()
 const { pendingCount, queueOrRun } = useSyncQueue()
@@ -59,27 +59,27 @@ const pending = ref<any[]>([])
 const staff = ref<any[]>([])
 const patientCount = ref(0)
 const activeCyclesCount = ref(0)
+const recentStaffChanges = ref<any[]>([])
+
+const STAFF_ACTION_TYPES = ['Created Staff Account', 'Revoked Staff Access', 'Reinstated Staff Access', 'Changed Staff Role']
 
 await useAsyncData('admin-overview', async () => {
-  const [milestonesRes, staffRes, patientsRes, cyclesRes] = await Promise.all([
+  const [milestonesRes, staffRes, patientsRes, cyclesRes, auditRes] = await Promise.all([
     supabase.from('payment_milestones').select('*, payment_plans(patient_id, patient_names(full_name))').eq('status', 'Pending Verification'),
     supabase.from('profiles').select('*').not('role', 'is', null).neq('role', 'patient').order('created_at', { ascending: true }),
     supabase.from('patient_names').select('patient_id', { count: 'exact', head: true }),
     supabase.from('cycles').select('id', { count: 'exact', head: true }).eq('status', 'Active'),
+    supabase.from('audit_log').select('*').in('action_type', STAFF_ACTION_TYPES).order('created_at', { ascending: false }).limit(5),
   ])
   pending.value = (milestonesRes.data || []).map((m: any) => ({ ...m, patient_name: m.payment_plans?.patient_names?.full_name || 'Unknown' }))
   staff.value = staffRes.data || []
   patientCount.value = patientsRes.count || 0
   activeCyclesCount.value = cyclesRes.count || 0
+  recentStaffChanges.value = auditRes.data || []
   return true
 })
 
 const activeStaffCount = computed(() => staff.value.filter((s) => s.active).length)
-const recentStaff = computed(() => [...staff.value].slice(-3).reverse())
-
-function roleLabelOf(s: any) {
-  return ROLE_META[s.role]?.label || s.custom_role_key || s.role
-}
 
 async function approve(m: any) {
   await queueOrRun(`${m.patient_name}'s ${m.label} approved`, async () => {

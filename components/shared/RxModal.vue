@@ -27,15 +27,21 @@ const submitting = ref(false)
 
 async function submit() {
   submitting.value = true
-  await queueOrRun(`Prescription sent to pharmacy for ${props.patientName}`, async () => {
+  const targetPatientId = props.patientId
+  const targetPatientName = props.patientName
+  const prescribedByProfileId = profile.value!.id
+  const prescribedByRole = profile.value!.role
+  const targetMed = med.value || 'Medication'
+  const targetSig = sig.value || 'As directed'
+  await queueOrRun(`Prescription sent to pharmacy for ${targetPatientName}`, async () => {
     const { data, error } = await supabase
       .from('prescriptions')
       .insert({
-        patient_id: props.patientId,
-        prescribed_by_profile_id: profile.value!.id,
-        prescribed_by_role: profile.value!.role,
-        medication: med.value || 'Medication',
-        sig: sig.value || 'As directed',
+        patient_id: targetPatientId,
+        prescribed_by_profile_id: prescribedByProfileId,
+        prescribed_by_role: prescribedByRole,
+        medication: targetMed,
+        sig: targetSig,
       })
       .select()
       .single()

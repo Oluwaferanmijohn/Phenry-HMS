@@ -41,6 +41,14 @@
             <div><div class="muted" style="font-size:10.5px;">SFA RESULT</div><div style="font-weight:600; font-size:12.5px;">{{ activeProfile.spouse.sfa || 'Not on file' }}</div></div>
           </div>
         </template>
+        <hr class="hr" />
+        <b style="font-size:12.5px;"><Icon name="layers" :size="12" /> Treatment Cycle</b>
+        <p style="font-size:12.5px; margin-top:6px; color:var(--text-700);">
+          {{ activeCycle ? `${activeCycle.type} — ${activeCycle.stage} (Day ${activeCycle.cycle_day})` : 'No active treatment cycle.' }}
+        </p>
+        <div v-if="activeCycle" style="margin-top:10px;">
+          <CycleDayChart :cycle-id="activeCycle.id" :start-date="activeCycle.start_date" :can-edit="false" />
+        </div>
       </template>
       <template #footer>
         <button class="btn btn-secondary" @click="showProfile = false">Close</button>
@@ -59,6 +67,7 @@ const search = ref('')
 const patients = ref<any[]>([])
 const showProfile = ref(false)
 const activeProfile = ref<any>(null)
+const activeCycle = ref<any>(null)
 
 await useAsyncData('lab-tech-patients', async () => {
   const { data } = await supabase.rpc('patients_lab_directory', { p_search: '' })
@@ -76,5 +85,20 @@ async function openProfile(patientId: string) {
   const { data } = await supabase.rpc('patient_lab_profile', { p_patient_id: patientId })
   activeProfile.value = data?.[0] || null
   showProfile.value = true
+
+  // Cycle info comes from a direct table read (now that Lab Tech has
+  // read-only RLS on cycles/cycle_daily_logs) rather than the RPC above —
+  // additive, so the existing patients_lab_directory/patient_lab_profile
+  // RPCs (deliberately scoped to lab-relevant fields only) don't need to
+  // change shape.
+  const { data: cycleData } = await supabase
+    .from('cycles')
+    .select('*')
+    .eq('patient_id', patientId)
+    .neq('status', 'Closed')
+    .order('start_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  activeCycle.value = cycleData
 }
 </script>

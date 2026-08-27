@@ -113,14 +113,16 @@ function switchPatient(id: string) {
 async function save() {
   if (!patientId.value) return
   saving.value = true
-  await queueOrRun(`Embryo grading saved for ${patientName.value}`, async () => {
-    const rows = DAY_DEFS.map((d) => ({
-      patient_id: patientId.value,
-      day_key: d.key,
-      total: batches[d.key].total === '' ? null : Number(batches[d.key].total),
-      grades: batches[d.key].grades,
-    }))
-    const { error } = await supabase.from('embryo_batches').upsert(rows, { onConflict: 'patient_id,day_key' })
+  const targetPatientId = patientId.value
+  const targetPatientName = patientName.value
+  const snapshot = DAY_DEFS.map((d) => ({
+    patient_id: targetPatientId,
+    day_key: d.key,
+    total: batches[d.key].total === '' ? null : Number(batches[d.key].total),
+    grades: [...batches[d.key].grades],
+  }))
+  await queueOrRun(`Embryo grading saved for ${targetPatientName}`, async () => {
+    const { error } = await supabase.from('embryo_batches').upsert(snapshot, { onConflict: 'patient_id,day_key' })
     if (error) throw error
   })
   saving.value = false

@@ -14,6 +14,23 @@
           </div>
         </div>
         <div class="card">
+          <div class="card-header"><h3><Icon name="flask" :size="15" /> Pending Test Orders</h3><Badge tone="amber">{{ orders.length }}</Badge></div>
+          <div class="card-body tight">
+            <div v-if="!orders.length" style="padding:18px;"><EmptyState icon="flask" title="Nothing ordered" description="Tests ordered by Doctor or Matron during a consultation will appear here." /></div>
+            <div v-for="o in orders" :key="o.id" class="list-row" style="align-items:flex-start;">
+              <div>
+                <div class="main-txt">{{ o.patient_name }}</div>
+                <div class="sub-txt">{{ o.tests.join(', ') }}</div>
+                <div class="cell-muted">Ordered {{ fmtDate(o.created_at) }} by {{ o.ordered_by_role }}</div>
+              </div>
+              <div class="flex gap-8">
+                <button class="btn btn-secondary btn-sm" @click="actionOrder(o, 'Collected')">Collected</button>
+                <button class="btn btn-secondary btn-sm" @click="actionOrder(o, 'Cancelled')">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
           <div class="card-header"><h3><Icon name="clipboard" :size="15" /> Reusable Result Templates</h3><span class="link" @click="$router.push(`/${role}/templates`)">Manage</span></div>
           <div class="card-body tight">
             <div v-for="t in templates" :key="t.id" class="list-row clickable" @click="$router.push(`/${role}/templates`)">
@@ -57,17 +74,30 @@ const supabase = useSupabaseClient()
 
 const items = ref<any[]>([])
 const templates = ref<any[]>([])
+const orders = ref<any[]>([])
 
 await useAsyncData(`lab-worklist-${props.role}`, async () => {
-  const [scheduleRes, templatesRes] = await Promise.all([
-    supabase.from('transfer_cryo_schedule').select('*, patient_names(full_name)').eq('status', 'Scheduled').order('scheduled_date', { ascending: true }),
+  // Postponed items still need to come back for action — an "active"
+  // worklist that drops them the moment they're postponed is exactly how
+  // they get forgotten. Scheduled + Postponed both count as active; only
+  // Done/Cancelled are excluded.
+  const [scheduleRes, templatesRes, ordersRes] = await Promise.all([
+    supabase.from('transfer_cryo_schedule').select('*, patient_names(full_name)').in('status', ['Scheduled', 'Postponed']).order('scheduled_date', { ascending: true }),
     supabase.from('lab_templates').select('*').order('name', { ascending: true }),
+    supabase.from('lab_test_orders').select('*, patient_names(full_name)').eq('status', 'Ordered').order('created_at', { ascending: false }),
   ])
   items.value = (scheduleRes.data || []).map((it: any) => ({ ...it, patient_name: it.patient_names?.full_name || 'Unknown' }))
   templates.value = templatesRes.data || []
+  orders.value = (ordersRes.data || []).map((o: any) => ({ ...o, patient_name: o.patient_names?.full_name || 'Unknown' }))
   return true
 })
 
 const todayStr = new Date().toISOString().slice(0, 10)
 const today = computed(() => items.value.filter((it) => it.scheduled_date === todayStr))
+
+async function actionOrder(order: any, status: 'Collected' | 'Cancelled') {
+  const { error } = await supabase.from('lab_test_orders').update({ status }).eq('id', order.id)
+  if (error) return
+  orders.value = orders.value.filter((o) => o.id !== order.id)
+}
 </script>

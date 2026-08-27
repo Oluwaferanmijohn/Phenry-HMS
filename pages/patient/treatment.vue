@@ -34,30 +34,8 @@
             <p style="font-size:12.5px; color:var(--text-700); margin-top:8px;">{{ cycle.physician_notes }}</p>
           </div>
 
-          <div class="card">
-            <div class="card-header"><h3><Icon name="clipboard" :size="15" /> Daily Treatment Tracker</h3></div>
-            <div class="card-body tight">
-              <div v-if="!dailyLogs.length" style="padding:20px;">
-                <EmptyState icon="clock" title="No entries yet" description="Your care team logs each day's medication and vitals here." />
-              </div>
-              <div v-for="l in dailyLogs" :key="l.id" class="list-row">
-                <div
-                  class="icon-wrap"
-                  :style="{
-                    background: l.medication_administered ? 'var(--green-50)' : 'var(--bg)',
-                    color: l.medication_administered ? 'var(--green-600)' : 'var(--text-400)',
-                    width: '34px', height: '34px', borderRadius: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }"
-                >
-                  <Icon :name="l.medication_administered ? 'check-circle' : 'clock'" :size="15" />
-                </div>
-                <div>
-                  <div class="main-txt">Day {{ l.day }} — {{ fmtDate(l.date) }}</div>
-                  <div class="sub-txt">{{ l.note || 'Awaiting clinic log' }}</div>
-                </div>
-                <div class="side"><Badge :tone="l.medication_administered ? 'green' : 'amber'">{{ l.medication_administered ? 'Logged' : 'Pending' }}</Badge></div>
-              </div>
-            </div>
+          <div class="card card-pad">
+            <CycleDayChart :cycle-id="cycle.id" :start-date="cycle.start_date" :can-edit="false" />
           </div>
         </div>
 
@@ -89,7 +67,6 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { fmtDate } from '~/composables/useFormat'
 import { useProfile } from '~/composables/useAuth'
 
 const supabase = useSupabaseClient()
@@ -98,7 +75,6 @@ const patientId = profile.value!.patient_id!
 
 const stages = ['Baseline', 'Stimulation', 'OPU', 'Transfer']
 const cycle = ref<any>(null)
-const dailyLogs = ref<any[]>([])
 
 const { data } = await useAsyncData(`patient-treatment-${patientId}`, async () => {
   const { data: c } = await supabase
@@ -109,21 +85,11 @@ const { data } = await useAsyncData(`patient-treatment-${patientId}`, async () =
     .order('start_date', { ascending: false })
     .limit(1)
     .maybeSingle()
-
-  if (!c) return { cycle: null, logs: [] }
-
-  const { data: logs } = await supabase
-    .from('cycle_daily_logs')
-    .select('*')
-    .eq('cycle_id', c.id)
-    .order('day', { ascending: true })
-
-  return { cycle: c, logs: logs || [] }
+  return { cycle: c }
 })
 
 if (data.value) {
   cycle.value = data.value.cycle
-  dailyLogs.value = data.value.logs
 }
 
 const stageIdx = computed(() => (cycle.value ? stages.indexOf(cycle.value.stage) : -1))

@@ -76,12 +76,15 @@ function fmtWhen(iso: string) {
 }
 
 async function submit() {
+  const requestedBy = profile.value!.id
+  const snapshotItems = itemRows.value.map((r) => ({ ...r }))
+  const snapshotUrgency = urgency.value
   await queueOrRun('Requisition submitted to pharmacy', async () => {
     const { error } = await supabase.from('requisitions').insert({
-      requested_by_profile_id: profile.value!.id,
+      requested_by_profile_id: requestedBy,
       ward: 'IVF Ward 2',
-      items: itemRows.value,
-      urgency: urgency.value,
+      items: snapshotItems,
+      urgency: snapshotUrgency,
       status: 'Pending',
     })
     if (error) throw error

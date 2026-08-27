@@ -88,17 +88,18 @@ watch(
 
 async function save(which: 'preop' | 'opnotes' | 'postop') {
   const label = which === 'preop' ? 'Pre-Op assessment' : which === 'opnotes' ? 'Operative notes' : 'Post-op orders'
-  await queueOrRun(`${label} saved`, async () => {
-    const patch: any = {}
-    if (which === 'preop') patch.pre_op = { ...preOp }
-    if (which === 'opnotes') patch.op_notes = { ...opNotes }
-    if (which === 'postop') patch.post_op = { ...postOp }
+  const targetSurgeryId = props.surgeryId
+  const patch: any = {}
+  if (which === 'preop') patch.pre_op = { ...preOp }
+  if (which === 'opnotes') patch.op_notes = { ...opNotes }
+  if (which === 'postop') patch.post_op = { ...postOp }
 
-    const { error } = await supabase.from('operative_reports').update(patch).eq('surgery_id', props.surgeryId)
+  await queueOrRun(`${label} saved`, async () => {
+    const { error } = await supabase.from('operative_reports').update(patch).eq('surgery_id', targetSurgeryId)
     if (error) throw error
 
     if (which === 'opnotes') {
-      await supabase.from('surgery_schedule').update({ status: 'Completed' }).eq('id', props.surgeryId)
+      await supabase.from('surgery_schedule').update({ status: 'Completed' }).eq('id', targetSurgeryId)
     }
   })
   emit('saved')

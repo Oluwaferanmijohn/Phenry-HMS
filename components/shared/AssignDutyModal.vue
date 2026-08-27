@@ -63,10 +63,14 @@ function toggle(shiftKey: string, name: string) {
 
 async function save() {
   submitting.value = true
-  await queueOrRun(`Duty roster updated for ${fmtDate(props.dateStr)}`, async () => {
+  const dateStr = props.dateStr
+  const morning = [...duty.morning]
+  const afternoon = [...duty.afternoon]
+  const night = [...duty.night]
+  await queueOrRun(`Duty roster updated for ${fmtDate(dateStr)}`, async () => {
     const { error } = await supabase
       .from('duty_roster')
-      .upsert({ date: props.dateStr, morning: duty.morning, afternoon: duty.afternoon, night: duty.night }, { onConflict: 'date' })
+      .upsert({ date: dateStr, morning, afternoon, night }, { onConflict: 'date' })
     if (error) throw error
   })
   submitting.value = false

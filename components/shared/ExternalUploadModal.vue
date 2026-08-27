@@ -71,21 +71,26 @@ function onFile(e: Event) {
 async function submit() {
   if (!patientId.value) return
   submitting.value = true
+  const targetPatientId = patientId.value
+  const targetTitle = title.value || 'External Result'
+  const targetDate = date.value
+  const targetFile = chosenFile.value
+  const enteredByProfileId = profile.value!.id
 
-  await queueOrRun(`"${title.value || 'External Result'}" attached to patient file`, async () => {
+  await queueOrRun(`"${targetTitle}" attached to patient file`, async () => {
     let externalFileUrl: string | null = null
-    if (chosenFile.value) {
-      const path = `${patientId.value}/${Date.now()}-${chosenFile.value.name}`
-      const { error: upErr } = await supabase.storage.from('lab-external-results').upload(path, chosenFile.value)
+    if (targetFile) {
+      const path = `${targetPatientId}/${Date.now()}-${targetFile.name}`
+      const { error: upErr } = await supabase.storage.from('lab-external-results').upload(path, targetFile)
       if (upErr) throw upErr
       externalFileUrl = path
     }
 
     const { error } = await supabase.from('lab_results').insert({
-      patient_id: patientId.value,
-      entered_by_profile_id: profile.value!.id,
-      collected_on: date.value,
-      title: title.value || 'External Result',
+      patient_id: targetPatientId,
+      entered_by_profile_id: enteredByProfileId,
+      collected_on: targetDate,
+      title: targetTitle,
       external: true,
       external_file_url: externalFileUrl,
     })

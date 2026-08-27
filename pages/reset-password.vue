@@ -36,14 +36,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useToast } from '~/composables/useToast'
-import { useProfile } from '~/composables/useAuth'
+import { loadProfile } from '~/composables/useAuth'
 import { roleHomePath } from '~/composables/useRoleMeta'
 
 definePageMeta({ layout: false })
 
 const supabase = useSupabaseClient()
 const { toast } = useToast()
-const profile = useProfile()
 
 const newPassword = ref('')
 const confirmPassword = ref('')
@@ -69,19 +68,28 @@ async function submit() {
     return
   }
 
-  const { error: profileError } = await supabase
-    .from('profiles')
-    .update({ force_password_reset: false })
-    .eq('id', profile.value!.id)
-
-  submitting.value = false
-  if (profileError) {
+  // Goes through a security-definer RPC rather than a direct table update —
+  // see 00000000000014_secure_password_reset.sql. Re-fetching the profile
+  // afterward (rather than trusting an optimistic local mutation) confirms
+  // the flag is actually clear in the database before we ever navigate
+  // away, so a silent failure here can't leave the account stuck bouncing
+  // back to this page on every future login.
+  const { error: rpcError } = await supabase.rpc('complete_password_reset')
+  if (rpcError) {
+    submitting.value = false
     toast('Password changed, but could not clear the reset flag — contact your Admin Manager', 'warn')
     return
   }
 
-  profile.value!.force_password_reset = false
+  const updated = await loadProfile()
+  submitting.value = false
+
+  if (!updated || updated.force_password_reset) {
+    toast('Password changed, but could not confirm the reset flag was cleared — contact your Admin Manager', 'warn')
+    return
+  }
+
   toast('Password updated — welcome to your portal', 'success')
-  await navigateTo(roleHomePath(profile.value!.role ?? 'patient'))
+  await navigateTo(roleHomePath(updated.role ?? 'patient'))
 }
 </script>

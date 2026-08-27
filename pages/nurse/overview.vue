@@ -118,12 +118,18 @@ function resetReq() {
 
 async function sendRequisition() {
   if (!reqItem.value) return toast('Enter an item to request', 'warn')
-  await queueOrRun(`Requisition for ${reqItem.value} sent to pharmacy`, async () => {
+  const requestedBy = profile.value!.id
+  const snapshotItem = reqItem.value
+  const snapshotQty = reqQty.value
+  const snapshotRoute = reqRoute.value
+  const snapshotLoc = reqLoc.value
+  const snapshotUrgency = reqUrgency.value
+  await queueOrRun(`Requisition for ${snapshotItem} sent to pharmacy`, async () => {
     const { error } = await supabase.from('requisitions').insert({
-      requested_by_profile_id: profile.value!.id,
+      requested_by_profile_id: requestedBy,
       ward: 'IVF Ward 2',
-      items: [{ name: reqItem.value, qty: reqQty.value, route: reqRoute.value, deliverTo: reqLoc.value }],
-      urgency: reqUrgency.value,
+      items: [{ name: snapshotItem, qty: snapshotQty, route: snapshotRoute, deliverTo: snapshotLoc }],
+      urgency: snapshotUrgency,
       status: 'Pending',
     })
     if (error) throw error

@@ -141,9 +141,20 @@ async function submitProof() {
     return
   }
 
+  // What the patient actually claims to have paid/when — distinct from the
+  // milestone's expected `amount`, and needed so Admin isn't reviewing a
+  // partial payment blind (see submitProof's amount/date fields above,
+  // which used to be collected here and then thrown away).
+  const claimedAmount = uploadAmount.value ? Number(uploadAmount.value.replace(/[^0-9.]/g, '')) : null
+
   const { data: updated, error: updateError } = await supabase
     .from('payment_milestones')
-    .update({ proof_url: path, status: 'Pending Verification' })
+    .update({
+      proof_url: path,
+      status: 'Pending Verification',
+      claimed_amount: Number.isFinite(claimedAmount) ? claimedAmount : null,
+      claimed_payment_date: uploadDate.value || null,
+    })
     .eq('id', activeMilestone.value.id)
     .select()
     .single()

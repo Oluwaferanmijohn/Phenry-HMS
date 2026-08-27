@@ -127,6 +127,7 @@ async function confirmBooking() {
   if (!selectedDateStr.value || !bookingTime.value || !assignedDoctorId.value) return
   const date = selectedDateStr.value
   const time = bookingTime.value
+  const providerId = assignedDoctorId.value
 
   await queueOrRun('Appointment request sent to the clinic', async () => {
     const { data: inserted, error } = await supabase
@@ -134,7 +135,7 @@ async function confirmBooking() {
       .insert({
         patient_id: patientId,
         provider_role: 'doctor',
-        provider_profile_id: assignedDoctorId.value,
+        provider_profile_id: providerId,
         type: 'Patient-Requested Visit',
         date,
         time,

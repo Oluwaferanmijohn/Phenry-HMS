@@ -102,29 +102,40 @@ async function submit() {
   const todayStr = new Date().toISOString().slice(0, 10)
   const isNow = date.value <= todayStr
 
-  await queueOrRun(`${procedure.value} scheduled`, async () => {
+  // Snapshotted so a queued-while-offline save replays with what was on
+  // the form when Schedule was clicked, not whatever the form happens to
+  // hold (a different patient/procedure entirely) by the time it replays.
+  const targetProcedure = procedure.value
+  const targetDate = date.value
+  const targetTime = time.value
+  const targetLocation = location.value
+  const targetProviderId = providerId.value || null
+  const targetBedId = bedId.value || null
+  const targetNotes = notes.value
+
+  await queueOrRun(`${targetProcedure} scheduled`, async () => {
     const { error } = await supabase.from('surgery_schedule').insert({
       patient_id: targetPatientId,
-      procedure: procedure.value,
-      date: date.value,
-      time: time.value,
-      location: location.value,
-      assigned_provider_id: providerId.value || null,
-      recovery_bed_id: bedId.value || null,
+      procedure: targetProcedure,
+      date: targetDate,
+      time: targetTime,
+      location: targetLocation,
+      assigned_doctor_id: targetProviderId,
+      recovery_bed_id: targetBedId,
       status: 'Scheduled',
-      notes: notes.value,
+      notes: targetNotes,
     })
     if (error) throw error
 
-    if (bedId.value) {
+    if (targetBedId) {
       await supabase
         .from('recovery_beds')
         .update(
           isNow
             ? { status: 'Occupied', occupied_by_patient_id: targetPatientId, occupied_since: new Date().toISOString(), reserved_for_date: null }
-            : { status: 'Reserved', occupied_by_patient_id: targetPatientId, occupied_since: null, reserved_for_date: date.value }
+            : { status: 'Reserved', occupied_by_patient_id: targetPatientId, occupied_since: null, reserved_for_date: targetDate }
         )
-        .eq('id', bedId.value)
+        .eq('id', targetBedId)
     }
   })
 

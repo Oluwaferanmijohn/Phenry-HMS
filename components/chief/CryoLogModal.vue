@@ -60,22 +60,31 @@ watch(
 async function submit() {
   if (!patientId.value) return
   submitting.value = true
+  const targetPatientId = patientId.value
+  const targetAssetType = assetType.value
+  const targetStraws = straws.value
+  const targetFreezingDate = freezingDate.value
+  const targetTankId = tankId.value || null
+  const targetCanister = canister.value
+  const targetPosition = position.value
+  const targetNotes = notes.value
+  const loggedBy = profile.value!.id
   await queueOrRun('Cryo record logged', async () => {
     const { error } = await supabase.from('cryo_records').insert({
-      patient_id: patientId.value,
-      asset_type: assetType.value,
-      straws: straws.value,
-      freezing_date: freezingDate.value,
-      tank_id: tankId.value || null,
-      canister: canister.value,
-      position: position.value,
-      notes: notes.value,
-      logged_by: profile.value!.id,
+      patient_id: targetPatientId,
+      asset_type: targetAssetType,
+      straws: targetStraws,
+      freezing_date: targetFreezingDate,
+      tank_id: targetTankId,
+      canister: targetCanister,
+      position: targetPosition,
+      notes: targetNotes,
+      logged_by: loggedBy,
     })
     if (error) throw error
-    if (tankId.value) {
-      const tank = props.tanks.find((t) => t.id === tankId.value)
-      if (tank) await supabase.from('cryo_tanks').update({ used: tank.used + straws.value }).eq('id', tankId.value)
+    if (targetTankId) {
+      const tank = props.tanks.find((t) => t.id === targetTankId)
+      if (tank) await supabase.from('cryo_tanks').update({ used: tank.used + targetStraws }).eq('id', targetTankId)
     }
   })
   submitting.value = false

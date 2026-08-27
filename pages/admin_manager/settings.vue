@@ -12,6 +12,7 @@
               <div class="hint">PNG or SVG, at least 256×256px.</div>
             </div>
           </div>
+          <div class="field"><label>Clinic Name</label><input v-model="cs.clinic_name" class="input" /><div class="hint">Shown to patients throughout the portal and on printed documents.</div></div>
           <div class="field"><label>Full Company Name</label><input v-model="cs.company_name" class="input" /></div>
           <div class="field"><label>Address</label><textarea v-model="cs.company_address" class="input" rows="2" /></div>
           <div class="field"><label>Phone Number</label><input v-model="cs.company_phone" class="input" /></div>
@@ -99,6 +100,7 @@ async function save() {
   const { error } = await supabase
     .from('clinic_settings')
     .update({
+      clinic_name: cs.value.clinic_name,
       company_name: cs.value.company_name,
       company_address: cs.value.company_address,
       company_phone: cs.value.company_phone,

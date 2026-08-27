@@ -18,6 +18,14 @@
       </div>
     </div>
     <div class="field"><label>Cycle Start Date (Day 1)</label><input v-model="startDate" class="input" type="date" /></div>
+    <div class="field">
+      <label>Cycle Manager (Fertility Nurse){{ nurses.length ? '' : ' — optional' }}</label>
+      <select v-model="cycleManagerId" class="input">
+        <option value="">{{ nurses.length ? 'Select a nurse…' : 'No nurse accounts on staff yet — leave unassigned for now' }}</option>
+        <option v-for="n in nurses" :key="n.id" :value="n.id">{{ n.full_name }}</option>
+      </select>
+      <div class="hint">The dedicated nurse who'll guide this patient day-to-day through the cycle.</div>
+    </div>
     <template #footer>
       <button class="btn btn-secondary" @click="$emit('update:modelValue', false)">Cancel</button>
       <button class="btn btn-primary" :disabled="!patientId || submitting" @click="submit"><Icon name="check-circle" :size="13" /> Start Cycle</button>
@@ -37,7 +45,9 @@ const supabase = useSupabaseClient()
 const { queueOrRun } = useSyncQueue()
 
 const eligible = ref<any[]>([])
+const nurses = ref<any[]>([])
 const patientId = ref('')
+const cycleManagerId = ref('')
 const type = ref('IVF Cycle')
 const protocol = ref('Antagonist Protocol')
 const startDate = ref(new Date().toISOString().slice(0, 10))
@@ -47,12 +57,15 @@ watch(
   () => props.modelValue,
   async (open) => {
     if (!open) return
-    const [namesRes, cyclesRes] = await Promise.all([
+    cycleManagerId.value = ''
+    const [namesRes, cyclesRes, nursesRes] = await Promise.all([
       supabase.from('patient_names').select('patient_id, full_name').order('full_name', { ascending: true }),
       supabase.from('cycles').select('patient_id').neq('status', 'Closed'),
+      supabase.from('profiles').select('id, full_name').eq('role', 'nurse').order('full_name', { ascending: true }),
     ])
     const withActiveCycle = new Set((cyclesRes.data || []).map((c: any) => c.patient_id))
     eligible.value = (namesRes.data || []).filter((p: any) => !withActiveCycle.has(p.patient_id))
+    nurses.value = nursesRes.data || []
   }
 )
 
@@ -60,6 +73,11 @@ async function submit() {
   if (!patientId.value) return
   submitting.value = true
   const providerLabel = ROLE_META[props.role]?.label || props.role
+  const targetPatientId = patientId.value
+  const targetType = type.value
+  const targetProtocol = protocol.value
+  const targetStartDate = startDate.value
+  const targetCycleManagerId = cycleManagerId.value || null
 
   // Cycle numbering + history. "Eligible" above only excludes patients with
   // a CURRENTLY active cycle — a returning patient starting their 3rd
@@ -70,25 +88,26 @@ async function submit() {
   const { data: priorCycles } = await supabase
     .from('cycles')
     .select('cycle_number, type, protocol, start_date, opu_date, transfer_date, outcome, status')
-    .eq('patient_id', patientId.value)
+    .eq('patient_id', targetPatientId)
     .order('cycle_number', { ascending: true })
   const cycleNumber = (priorCycles?.length || 0) + 1
 
-  await queueOrRun(`${type.value} started`, async () => {
+  await queueOrRun(`${targetType} started`, async () => {
     const { error } = await supabase.from('cycles').insert({
-      patient_id: patientId.value,
+      patient_id: targetPatientId,
       cycle_number: cycleNumber,
       prior_cycles: priorCycles || [],
-      protocol: protocol.value,
-      type: type.value,
-      start_date: startDate.value,
+      protocol: targetProtocol,
+      type: targetType,
+      start_date: targetStartDate,
       stage: 'Baseline',
       cycle_day: 1,
       status: 'Active',
+      cycle_manager_id: targetCycleManagerId,
       physician_notes: `Cycle started by ${providerLabel}.`,
     })
     if (error) throw error
-    await supabase.from('bio_details').update({ status: 'Active' }).eq('patient_id', patientId.value)
+    await supabase.from('bio_details').update({ status: 'Active' }).eq('patient_id', targetPatientId)
   })
   submitting.value = false
   emit('started')

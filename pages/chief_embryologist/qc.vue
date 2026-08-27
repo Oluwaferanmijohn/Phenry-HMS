@@ -90,11 +90,14 @@ await useAsyncData('chief-qc', async () => {
 })
 
 async function logCheck(u: any, status: string) {
-  await queueOrRun(`${u.name} logged as ${status}`, async () => {
+  const targetId = u.id
+  const targetName = u.name
+  const snapshot = { temp: u.temp, co2: u.co2, o2: u.o2, humidity: u.humidity }
+  await queueOrRun(`${targetName} logged as ${status}`, async () => {
     const { error } = await supabase
       .from('incubator_logs')
-      .update({ temp: u.temp, co2: u.co2, o2: u.o2, humidity: u.humidity, status, last_checked: new Date().toISOString(), checked_by: profile.value!.id })
-      .eq('id', u.id)
+      .update({ ...snapshot, status, last_checked: new Date().toISOString(), checked_by: profile.value!.id })
+      .eq('id', targetId)
     if (error) throw error
     u.status = status
   })

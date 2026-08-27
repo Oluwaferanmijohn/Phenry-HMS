@@ -19,9 +19,47 @@
             <div><div class="muted" style="font-size:10.5px;">ALLERGIES</div><div style="font-weight:700; font-size:13px;" :style="{ color: patient.allergies?.length ? 'var(--red-600)' : 'var(--text-900)' }">{{ patient.allergies?.join(', ') || 'None' }}</div></div>
             <div><div class="muted" style="font-size:10.5px;">CYCLE</div><div style="font-weight:700; font-size:13px;">{{ cycle ? `${cycle.stage} · D${cycle.cycle_day}` : '—' }}</div></div>
           </div>
+
+          <div v-if="cycle" class="cell-muted" style="margin-bottom:10px;"><Icon name="user" :size="11" /> Cycle Manager: <b style="color:var(--text-900);">{{ cycleManagerName || 'Unassigned' }}</b></div>
+
+          <div v-if="cycle && cycle.status !== 'Closed'" class="card-pad" style="border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:14px;">
+            <div class="flex-between">
+              <b style="font-size:12.5px;"><Icon name="target" :size="12" /> Cycle Progress — {{ cycle.stage }}</b>
+              <button class="btn btn-secondary btn-sm" @click="showCloseCycle = !showCloseCycle"><Icon name="check-circle" :size="12" /> Close Cycle</button>
+            </div>
+            <div class="flex gap-8" style="margin-top:8px;">
+              <button v-if="nextStage" class="btn btn-secondary btn-sm" :disabled="advancingStage" @click="advanceStage">
+                <Icon name="activity" :size="12" /> Advance to {{ nextStage }}
+              </button>
+              <span v-else class="cell-muted">Final stage reached — close the cycle to record an outcome.</span>
+            </div>
+            <div v-if="showCloseCycle" style="margin-top:10px; border-top:1px solid var(--border); padding-top:10px;">
+              <div class="field">
+                <label>Outcome</label>
+                <select v-model="outcomeDraft" class="input">
+                  <option value="">Select outcome…</option>
+                  <option>Positive — Clinical Pregnancy</option>
+                  <option>Positive — Biochemical Pregnancy</option>
+                  <option>Negative — Not Pregnant</option>
+                  <option>Cancelled — Poor Ovarian Response</option>
+                  <option>Cancelled — OHSS Risk</option>
+                  <option>Cancelled — Patient Withdrew</option>
+                </select>
+              </div>
+              <button class="btn btn-primary btn-sm" :disabled="!outcomeDraft || closingCycle" @click="closeCycle"><Icon name="check-circle" :size="12" /> Confirm &amp; Close Cycle</button>
+            </div>
+          </div>
+          <div v-else-if="cycle" class="card-pad" style="border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:14px; background:var(--bg);">
+            <b style="font-size:12.5px;">Cycle Closed</b> — <span class="cell-muted">{{ cycle.outcome }}</span>
+          </div>
+
           <b style="font-size:12.5px;">Findings &amp; Notes</b>
-          <div class="tabs" style="margin:8px 0 10px;"><div class="tab active">Standard Consult</div><div class="tab">Follicular Tracking Scan</div><div class="tab">Post-Op Note</div></div>
-          <textarea v-model="notes" class="input" rows="7" placeholder="Patient presents today for..." />
+          <div class="tabs" style="margin:8px 0 10px;">
+            <div class="tab" :class="{ active: consultType === 'Standard Consult' }" @click="consultType = 'Standard Consult'">Standard Consult</div>
+            <div class="tab" :class="{ active: consultType === 'Follicular Tracking Scan' }" @click="consultType = 'Follicular Tracking Scan'">Follicular Tracking Scan</div>
+            <div class="tab" :class="{ active: consultType === 'Post-Op Note' }" @click="consultType = 'Post-Op Note'">Post-Op Note</div>
+          </div>
+          <textarea v-model="notes" class="input" rows="7" :placeholder="notesPlaceholder" />
           <hr class="hr" />
           <b style="font-size:12.5px;">Diagnosis &amp; Treatment Plan</b>
           <div class="form-row" style="margin-top:8px;">
@@ -44,21 +82,33 @@
           <button class="btn btn-secondary btn-block btn-sm" style="margin-top:10px;" @click="showRx = true"><Icon name="plus" :size="12" /> Add Medication</button>
         </div>
 
+        <div v-if="cycle" class="card card-pad">
+          <CycleDayChart :cycle-id="cycle.id" :start-date="cycle.start_date" :can-edit="false" />
+        </div>
+
         <div class="card card-pad">
           <b style="font-size:13px;"><Icon name="flask" :size="13" /> Order Tests</b>
           <div style="margin-top:10px; display:flex; flex-direction:column; gap:8px; font-size:12.5px;">
-            <label class="flex gap-8"><input type="checkbox" /> SFA (Semen Fluid Analysis)</label>
-            <label class="flex gap-8"><input type="checkbox" checked /> Hormonal Panel (FSH, LH, E2)</label>
-            <label class="flex gap-8"><input type="checkbox" /> Karyotype</label>
-            <label class="flex gap-8"><input type="checkbox" /> Beta hCG (Quantitative)</label>
+            <label v-for="t in TEST_OPTIONS" :key="t" class="flex gap-8"><input v-model="orderedTests[t]" type="checkbox" /> {{ t }}</label>
           </div>
-          <button class="btn btn-secondary btn-block btn-sm" style="margin-top:10px;" @click="toast('Lab order sent to the embryology lab')"><Icon name="flask" :size="12" /> Send to Lab</button>
+          <div v-if="pendingOrders.length" style="margin-top:10px; display:flex; flex-direction:column; gap:6px;">
+            <div v-for="o in pendingOrders" :key="o.id" class="cell-muted" style="display:flex; align-items:center; gap:6px;">
+              <Badge tone="amber">Ordered</Badge> {{ o.tests.join(', ') }}
+            </div>
+          </div>
+          <button class="btn btn-secondary btn-block btn-sm" style="margin-top:10px;" :disabled="sendingOrder" @click="sendToLab"><Icon name="flask" :size="12" /> Send to Lab</button>
         </div>
 
         <div class="card card-pad">
           <b style="font-size:13px;"><Icon name="siren" :size="13" /> Schedule Procedure</b>
           <p class="muted" style="font-size:11.5px; margin-top:4px;">OPU, Embryo Transfer, or another clinical procedure.</p>
           <button class="btn btn-secondary btn-block btn-sm" style="margin-top:8px;" @click="showScheduleProcedure = true"><Icon name="plus" :size="12" /> Schedule Procedure</button>
+        </div>
+
+        <div v-if="props.role === 'doctor'" class="card card-pad">
+          <b style="font-size:13px;"><Icon name="cash" :size="13" /> Payment Plan</b>
+          <p class="muted" style="font-size:11.5px; margin-top:4px;">Generate or update this patient's treatment payment plan.</p>
+          <button class="btn btn-secondary btn-block btn-sm" style="margin-top:8px;" @click="router.push(`/doctor/billing?patient=${patient.patient_id}`)"><Icon name="arrow-right" :size="12" /> Open Payment Plan Generator</button>
         </div>
 
         <div v-if="caps.allowScheduleAppointment" class="card card-pad">
@@ -77,11 +127,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { fmtDate, computeAge } from '~/composables/useFormat'
 import { useToast } from '~/composables/useToast'
 import { useSyncQueue } from '~/composables/useSyncQueue'
 import { useProfile } from '~/composables/useAuth'
+import { resolveCycleManagerNames } from '~/composables/useCycleManagerNames'
+
+const STAGES = ['Baseline', 'Stimulation', 'OPU', 'Transfer']
+const TEST_OPTIONS = ['SFA (Semen Fluid Analysis)', 'Hormonal Panel (FSH, LH, E2)', 'Karyotype', 'Beta hCG (Quantitative)']
 
 // Doctor: read-only on appointments per spec §2.2 (flagged in the Doctor
 // migration) — no "Schedule Next Appointment" card for them. Matron gets it
@@ -104,11 +158,19 @@ const caps = computed(() => CONSULT_CAPS[props.role] || {})
 const allPatients = ref<any[]>([])
 const patient = ref<any>(null)
 const cycle = ref<any>(null)
+const cycleManagerName = ref('')
 const prescriptions = ref<any[]>([])
 const pastConsultations = ref<any[]>([])
 const pastLabResults = ref<any[]>([])
+const pendingOrders = ref<any[]>([])
 
 const notes = ref('')
+const consultType = ref('Standard Consult')
+const notesPlaceholder = computed(() => {
+  if (consultType.value === 'Follicular Tracking Scan') return 'Scan findings — endometrial thickness, follicle counts and sizes, impression…'
+  if (consultType.value === 'Post-Op Note') return 'Post-operative status — recovery, wound/incision check, complications, follow-up plan…'
+  return 'Patient presents today for...'
+})
 const diagnosis = ref('')
 const icd = ref('')
 const finalizing = ref(false)
@@ -116,27 +178,50 @@ const showRx = ref(false)
 const showScheduleProcedure = ref(false)
 const showFullHistory = ref(false)
 
+const orderedTests = reactive<Record<string, boolean>>(Object.fromEntries(TEST_OPTIONS.map((t) => [t, false])))
+const sendingOrder = ref(false)
+
+const showCloseCycle = ref(false)
+const outcomeDraft = ref('')
+const advancingStage = ref(false)
+const closingCycle = ref(false)
+
+const nextStage = computed(() => {
+  if (!cycle.value || cycle.value.status === 'Closed') return null
+  const idx = STAGES.indexOf(cycle.value.stage)
+  return idx >= 0 && idx < STAGES.length - 1 ? STAGES[idx + 1] : null
+})
+
 const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
 const followUpDate = ref(tomorrow)
 const followUpTime = ref('09:00')
 
 async function loadPatientContext(patientId: string) {
-  const [bioRes, cycleRes, rxRes, consultRes, labRes] = await Promise.all([
+  const [bioRes, cycleRes, rxRes, consultRes, labRes, ordersRes] = await Promise.all([
     supabase.from('bio_details').select('*, patient_names(full_name)').eq('patient_id', patientId).single(),
     supabase.from('cycles').select('*').eq('patient_id', patientId).neq('status', 'Closed').order('start_date', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('prescriptions').select('*').eq('patient_id', patientId).neq('status', 'Cancelled').order('date', { ascending: false }),
     supabase.from('consultations').select('*, profiles:provider_profile_id(full_name)').eq('patient_id', patientId).order('date', { ascending: false }),
     supabase.from('lab_results').select('*, lab_templates(name)').eq('patient_id', patientId).order('collected_on', { ascending: false }),
+    supabase.from('lab_test_orders').select('*').eq('patient_id', patientId).eq('status', 'Ordered').order('created_at', { ascending: false }),
   ])
   patient.value = bioRes.data ? { ...bioRes.data, full_name: bioRes.data.patient_names?.full_name } : null
   cycle.value = cycleRes.data
+  cycleManagerName.value = cycleRes.data?.cycle_manager_id
+    ? (await resolveCycleManagerNames(supabase, [cycleRes.data.cycle_manager_id])).get(cycleRes.data.cycle_manager_id) || ''
+    : ''
   prescriptions.value = rxRes.data || []
   pastConsultations.value = (consultRes.data || []).map((c: any) => ({ ...c, provider_name: c.profiles?.full_name || 'Staff' }))
   pastLabResults.value = labRes.data || []
+  pendingOrders.value = ordersRes.data || []
 
   notes.value = cycle.value?.physician_notes || ''
+  consultType.value = 'Standard Consult'
   diagnosis.value = cycle.value ? `Infertility — undergoing ${cycle.value.type}` : ''
   icd.value = ''
+  showCloseCycle.value = false
+  outcomeDraft.value = ''
+  TEST_OPTIONS.forEach((t) => (orderedTests[t] = false))
 }
 
 await useAsyncData(`consultation-init-${props.role}`, async () => {
@@ -163,22 +248,97 @@ function onRxAdded(rx: any) {
   prescriptions.value = [rx, ...prescriptions.value]
 }
 
+async function sendToLab() {
+  if (!patient.value) return
+  const tests = TEST_OPTIONS.filter((t) => orderedTests[t])
+  if (!tests.length) {
+    toast('Select at least one test to send to the lab')
+    return
+  }
+  sendingOrder.value = true
+  const targetPatientId = patient.value.patient_id
+  const targetPatientName = patient.value.full_name
+  const targetCycleId = cycle.value?.id || null
+  const orderedByProfileId = profile.value!.id
+  const orderedByRole = props.role
+  await queueOrRun(`Lab order sent for ${targetPatientName}: ${tests.join(', ')}`, async () => {
+    const { data, error } = await supabase
+      .from('lab_test_orders')
+      .insert({
+        patient_id: targetPatientId,
+        cycle_id: targetCycleId,
+        ordered_by_profile_id: orderedByProfileId,
+        ordered_by_role: orderedByRole,
+        tests,
+      })
+      .select()
+      .single()
+    if (error) throw error
+    pendingOrders.value = [data, ...pendingOrders.value]
+  })
+  sendingOrder.value = false
+  TEST_OPTIONS.forEach((t) => (orderedTests[t] = false))
+}
+
+async function advanceStage() {
+  if (!cycle.value || !nextStage.value) return
+  advancingStage.value = true
+  const targetCycleId = cycle.value.id
+  const targetPatientName = patient.value.full_name
+  const targetNextStage = nextStage.value
+  const patch: Record<string, any> = { stage: targetNextStage }
+  const today = new Date().toISOString().slice(0, 10)
+  if (targetNextStage === 'OPU' && !cycle.value.opu_date) patch.opu_date = today
+  if (targetNextStage === 'Transfer' && !cycle.value.transfer_date) patch.transfer_date = today
+  await queueOrRun(`Cycle advanced to ${targetNextStage} for ${targetPatientName}`, async () => {
+    const { error } = await supabase.from('cycles').update(patch).eq('id', targetCycleId)
+    if (error) throw error
+    if (cycle.value?.id === targetCycleId) Object.assign(cycle.value, patch)
+  })
+  advancingStage.value = false
+}
+
+async function closeCycle() {
+  if (!cycle.value || !outcomeDraft.value) return
+  closingCycle.value = true
+  const targetCycleId = cycle.value.id
+  const targetPatientName = patient.value.full_name
+  const targetOutcome = outcomeDraft.value
+  const patch = { status: 'Closed', outcome: targetOutcome }
+  await queueOrRun(`Cycle closed for ${targetPatientName} — ${targetOutcome}`, async () => {
+    const { error } = await supabase.from('cycles').update(patch).eq('id', targetCycleId)
+    if (error) throw error
+    if (cycle.value?.id === targetCycleId) Object.assign(cycle.value, patch)
+  })
+  closingCycle.value = false
+  showCloseCycle.value = false
+}
+
 async function finalize() {
   if (!patient.value) return
   finalizing.value = true
-  await queueOrRun(`Consultation finalized for ${patient.value.full_name}`, async () => {
+  const targetPatientId = patient.value.patient_id
+  const targetPatientName = patient.value.full_name
+  const targetCycleId = cycle.value?.id || null
+  const providerProfileId = profile.value!.id
+  const providerRole = props.role
+  const targetType = consultType.value
+  const targetNotes = notes.value
+  const targetDiagnosis = diagnosis.value
+  const targetIcd = icd.value
+  await queueOrRun(`Consultation finalized for ${targetPatientName}`, async () => {
     const { error } = await supabase.from('consultations').insert({
-      patient_id: patient.value.patient_id,
-      provider_profile_id: profile.value!.id,
-      provider_role: props.role,
-      type: 'Standard Consult',
-      notes: notes.value,
-      diagnosis: diagnosis.value,
-      icd10: icd.value,
+      patient_id: targetPatientId,
+      provider_profile_id: providerProfileId,
+      provider_role: providerRole,
+      type: targetType,
+      notes: targetNotes,
+      diagnosis: targetDiagnosis,
+      icd10: targetIcd,
     })
     if (error) throw error
-    if (cycle.value) {
-      await supabase.from('cycles').update({ physician_notes: notes.value }).eq('id', cycle.value.id)
+    if (targetCycleId) {
+      await supabase.from('cycles').update({ physician_notes: targetNotes }).eq('id', targetCycleId)
     }
   })
   finalizing.value = false
@@ -187,14 +347,20 @@ async function finalize() {
 
 async function scheduleFollowUp() {
   if (!patient.value) return
-  await queueOrRun(`Follow-up booked for ${patient.value.full_name} on ${fmtDate(followUpDate.value)}`, async () => {
+  const targetPatientId = patient.value.patient_id
+  const targetPatientName = patient.value.full_name
+  const providerRole = props.role
+  const providerProfileId = profile.value!.id
+  const targetDate = followUpDate.value
+  const targetTime = followUpTime.value
+  await queueOrRun(`Follow-up booked for ${targetPatientName} on ${fmtDate(targetDate)}`, async () => {
     const { error } = await supabase.from('appointments').insert({
-      patient_id: patient.value.patient_id,
-      provider_role: props.role,
-      provider_profile_id: profile.value!.id,
+      patient_id: targetPatientId,
+      provider_role: providerRole,
+      provider_profile_id: providerProfileId,
       type: 'Follow-up Consultation',
-      date: followUpDate.value,
-      time: followUpTime.value,
+      date: targetDate,
+      time: targetTime,
       duration: 30,
       status: 'Scheduled',
     })

@@ -49,6 +49,7 @@
           <div v-for="r in onFile" :key="r.id" class="list-row">
             <div><div class="main-txt">{{ r.title || r.lab_templates?.name }}</div><div class="sub-txt">{{ fmtDate(r.collected_on) }} · {{ r.entered_by_name }}</div></div>
             <Badge v-if="r.external" tone="purple">External</Badge>
+            <Badge v-else-if="flaggedCount(r) > 0" tone="red">⚠ {{ flaggedCount(r) }} abnormal</Badge>
           </div>
         </div>
       </div>
@@ -65,6 +66,7 @@ import { ref, watch } from 'vue'
 import { fmtDate } from '~/composables/useFormat'
 import { useSyncQueue } from '~/composables/useSyncQueue'
 import { useProfile } from '~/composables/useAuth'
+import { computeFlag } from '~/composables/useLabFlag'
 
 const props = defineProps<{ role: string }>()
 const supabase = useSupabaseClient()
@@ -88,6 +90,10 @@ const submitting = ref(false)
 async function loadPatient(id: string) {
   const { data } = await supabase.from('patient_names').select('*').eq('patient_id', id).single()
   patient.value = data
+  // Whatever was typed in for the previous patient must not survive the
+  // switch — otherwise it sits in the form and gets saved under the new
+  // patient's record if Save is clicked without noticing.
+  resetForm()
   await loadOnFile()
 }
 async function loadOnFile() {
@@ -98,6 +104,7 @@ async function loadOnFile() {
 watch(templateId, (id) => {
   template.value = templates.value.find((t) => t.id === id)
   values.value = template.value ? new Array(template.value.variables.length).fill('') : []
+  remarks.value = ''
 })
 
 await useAsyncData(`lab-results-init-${props.role}`, async () => {
@@ -113,6 +120,10 @@ await useAsyncData(`lab-results-init-${props.role}`, async () => {
   return true
 })
 
+function flaggedCount(result: any) {
+  return Array.isArray(result.values) ? result.values.filter((v: any) => v.flag).length : 0
+}
+
 function resetForm() {
   remarks.value = ''
   values.value = template.value ? new Array(template.value.variables.length).fill('') : []
@@ -121,19 +132,29 @@ function resetForm() {
 async function save() {
   if (!template.value || !patient.value) return
   submitting.value = true
-  const valuesPayload = template.value.variables.map((v: any, i: number) => ({ param: v.name, value: values.value[i] || '—', unit: v.unit, ref: v.ref, flag: false }))
+  const valuesPayload = template.value.variables.map((v: any, i: number) => {
+    const enteredValue = values.value[i] || '—'
+    return { param: v.name, value: enteredValue, unit: v.unit, ref: v.ref, flag: computeFlag(enteredValue, v.ref) }
+  })
+  const targetPatientId = patientId.value
+  const targetPatientName = patient.value.full_name
+  const targetTemplateId = templateId.value
+  const targetTemplateName = template.value.name
+  const targetCollectedOn = collectedOn.value
+  const targetRemarks = remarks.value
+  const enteredByProfileId = profile.value!.id
 
-  await queueOrRun(`${template.value.name} results saved for ${patient.value.full_name}`, async () => {
+  await queueOrRun(`${targetTemplateName} results saved for ${targetPatientName}`, async () => {
     const { error } = await supabase.from('lab_results').insert({
-      patient_id: patientId.value,
-      template_id: templateId.value,
-      entered_by_profile_id: profile.value!.id,
-      collected_on: collectedOn.value,
+      patient_id: targetPatientId,
+      template_id: targetTemplateId,
+      entered_by_profile_id: enteredByProfileId,
+      collected_on: targetCollectedOn,
       values: valuesPayload,
-      remarks: remarks.value,
+      remarks: targetRemarks,
     })
     if (error) throw error
-    await loadOnFile()
+    if (patientId.value === targetPatientId) await loadOnFile()
   })
   submitting.value = false
   resetForm()

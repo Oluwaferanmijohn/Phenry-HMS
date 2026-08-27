@@ -60,6 +60,21 @@
         <button v-else class="btn btn-primary" :disabled="submitting" @click="submit"><Icon name="check-circle" :size="13" /> Complete Registration</button>
       </div>
     </div>
+
+    <Modal :model-value="!!portalCredentials" title="Patient Registered" @update:model-value="closeCredentials">
+      <div class="empty-state" style="padding:6px 0;">
+        <div class="icon-wrap"><Icon name="check-circle" :size="22" /></div>
+        <h4>Portal login created</h4>
+        <p>Give the patient these details — they'll be asked to set a new password the first time they sign in.</p>
+      </div>
+      <div v-if="portalCredentials" class="card-pad" style="border:1px solid var(--border); border-radius:var(--radius-sm); margin-top:10px;">
+        <div class="flex-between"><span class="cell-muted">Patient ID (username)</span><b>{{ portalCredentials.patientId }}</b></div>
+        <div class="flex-between" style="margin-top:8px;"><span class="cell-muted">Temporary password</span><b>{{ portalCredentials.password }}</b></div>
+      </div>
+      <template #footer>
+        <button class="btn btn-primary" @click="closeCredentials"><Icon name="check-circle" :size="13" /> Done</button>
+      </template>
+    </Modal>
   </div>
 </template>
 
@@ -81,6 +96,12 @@ const draft = reactive({
   ref: 'Instagram Ad', consent: true,
 })
 
+const portalCredentials = ref<{ patientId: string; password: string } | null>(null)
+function closeCredentials() {
+  portalCredentials.value = null
+  router.push('/receptionist/patients')
+}
+
 async function submit() {
   if (!draft.first || !draft.last) {
     step.value = 1
@@ -101,17 +122,30 @@ async function submit() {
     p_ec_phone: draft.ecPhone,
     p_referral_source: draft.ref,
   })
-  submitting.value = false
 
   if (error || !data?.length) {
+    submitting.value = false
     toast('Could not register the patient — please try again', 'warn')
     return
   }
 
   const mrn = data[0].mrn
-  toast(`${draft.first} ${draft.last} registered — ${mrn}`, 'success')
+
+  // Registration and portal-account creation are two separate calls — the
+  // account needs the service-role key (server route), the RPC doesn't.
+  // A failure here still leaves the patient successfully registered; it
+  // just means Admin needs to set up their login separately, which is
+  // surfaced clearly rather than silently losing that step.
+  try {
+    await $fetch('/api/receptionist/create-patient-account', { method: 'POST', body: { patientId: mrn } })
+    portalCredentials.value = { patientId: mrn, password: draft.last.trim() }
+  } catch (e: any) {
+    toast(`${draft.first} ${draft.last} registered (${mrn}), but the portal login could not be created — ask Admin to set it up.`, 'warn')
+  }
+
+  submitting.value = false
   step.value = 1
   Object.assign(draft, { first: '', last: '', dob: '', sex: 'F', phone: '', email: '', addr: '', ecName: '', ecRel: '', ecPhone: '', ref: 'Instagram Ad', consent: true })
-  router.push('/receptionist/patients')
+  if (!portalCredentials.value) router.push('/receptionist/patients')
 }
 </script>

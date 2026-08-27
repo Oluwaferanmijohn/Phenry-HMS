@@ -28,7 +28,7 @@
                 <div class="sub-txt">{{ fmtDate(r.collected_on) }}{{ r.remarks ? ' · ' + r.remarks : '' }}</div>
               </div>
               <div class="side">
-                <button class="icon-btn" @click="downloadResult(r)"><Icon name="download" :size="14" /></button>
+                <button class="icon-btn" :disabled="downloadingId === r.id" @click="downloadResult(r)"><Icon name="download" :size="14" /></button>
               </div>
             </div>
           </div>
@@ -77,6 +77,7 @@ const patientId = profile.value!.patient_id!
 const activeTab = ref<'lab' | 'inv'>('lab')
 const labResults = ref<any[]>([])
 const milestones = ref<any[]>([])
+const downloadingId = ref<string | null>(null)
 
 const { data } = await useAsyncData(`patient-results-${patientId}`, async () => {
   const [labRes, planRes] = await Promise.all([
@@ -92,11 +93,21 @@ if (data.value) {
   milestones.value = data.value.milestones
 }
 
-function downloadResult(r: any) {
-  if (r.external_file_url) {
-    window.open(r.external_file_url, '_blank')
-  } else {
+async function downloadResult(r: any) {
+  if (!r.external_file_url) {
     toast(`Downloading ${r.lab_templates?.name || 'result'}…`)
+    return
   }
+  // external_file_url is a storage path (e.g. "PT-001/169..."), not a
+  // public URL — the bucket is private, so it has to be exchanged for a
+  // short-lived signed URL before it can be opened.
+  downloadingId.value = r.id
+  const { data, error } = await supabase.storage.from('lab-external-results').createSignedUrl(r.external_file_url, 60)
+  downloadingId.value = null
+  if (error || !data?.signedUrl) {
+    toast("Couldn't open this document — please try again or ask the clinic.")
+    return
+  }
+  window.open(data.signedUrl, '_blank')
 }
 </script>
