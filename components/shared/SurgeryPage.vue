@@ -13,7 +13,7 @@
             <td>{{ formatTime12(s.time) }}</td>
             <td class="cell-strong">{{ s.patient_name }}</td>
             <td class="cell-strong">{{ s.procedure }}</td>
-            <td class="cell-muted">{{ s.provider_name || 'Unassigned' }} <Badge v-if="s.assigned_doctor_id === myId" tone="blue">You</Badge></td>
+            <td class="cell-muted">{{ s.provider_name || 'Unassigned' }} <Badge v-if="s.assigned_provider_id === myId" tone="blue">You</Badge></td>
             <td><StatusBadge :status="s.status" /></td>
             <td style="text-align:right;"><button v-if="canDocument" class="btn btn-secondary btn-sm" @click="openReport(s.id)"><Icon name="file" :size="12" /> Procedure Report</button></td>
           </tr>
@@ -45,7 +45,7 @@ const activeSurgeryId = ref('')
 async function load() {
   const { data } = await supabase
     .from('surgery_schedule')
-    .select('*, patient_names(full_name), profiles:assigned_doctor_id(full_name)')
+    .select('*, patient_names(full_name), profiles:assigned_provider_id(full_name)')
     .order('date', { ascending: true })
     .order('time', { ascending: true })
   list.value = (data || []).map((s: any) => ({ ...s, patient_name: s.patient_names?.full_name || 'Unknown', provider_name: s.profiles?.full_name }))

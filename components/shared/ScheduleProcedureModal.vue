@@ -120,7 +120,7 @@ async function submit() {
       date: targetDate,
       time: targetTime,
       location: targetLocation,
-      assigned_doctor_id: targetProviderId,
+      assigned_provider_id: targetProviderId,
       recovery_bed_id: targetBedId,
       status: 'Scheduled',
       notes: targetNotes,

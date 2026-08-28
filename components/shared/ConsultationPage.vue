@@ -133,6 +133,9 @@ import { useToast } from '~/composables/useToast'
 import { useSyncQueue } from '~/composables/useSyncQueue'
 import { useProfile } from '~/composables/useAuth'
 import { resolveCycleManagerNames } from '~/composables/useCycleManagerNames'
+import { useRecentPatientCache } from '~/composables/useRecentPatientCache'
+
+const { loadWithCache } = useRecentPatientCache()
 
 const STAGES = ['Baseline', 'Stimulation', 'OPU', 'Transfer']
 const TEST_OPTIONS = ['SFA (Semen Fluid Analysis)', 'Hormonal Panel (FSH, LH, E2)', 'Karyotype', 'Beta hCG (Quantitative)']
@@ -197,23 +200,39 @@ const followUpDate = ref(tomorrow)
 const followUpTime = ref('09:00')
 
 async function loadPatientContext(patientId: string) {
-  const [bioRes, cycleRes, rxRes, consultRes, labRes, ordersRes] = await Promise.all([
-    supabase.from('bio_details').select('*, patient_names(full_name)').eq('patient_id', patientId).single(),
-    supabase.from('cycles').select('*').eq('patient_id', patientId).neq('status', 'Closed').order('start_date', { ascending: false }).limit(1).maybeSingle(),
-    supabase.from('prescriptions').select('*').eq('patient_id', patientId).neq('status', 'Cancelled').order('date', { ascending: false }),
-    supabase.from('consultations').select('*, profiles:provider_profile_id(full_name)').eq('patient_id', patientId).order('date', { ascending: false }),
-    supabase.from('lab_results').select('*, lab_templates(name)').eq('patient_id', patientId).order('collected_on', { ascending: false }),
-    supabase.from('lab_test_orders').select('*').eq('patient_id', patientId).eq('status', 'Ordered').order('created_at', { ascending: false }),
-  ])
-  patient.value = bioRes.data ? { ...bioRes.data, full_name: bioRes.data.patient_names?.full_name } : null
-  cycle.value = cycleRes.data
-  cycleManagerName.value = cycleRes.data?.cycle_manager_id
-    ? (await resolveCycleManagerNames(supabase, [cycleRes.data.cycle_manager_id])).get(cycleRes.data.cycle_manager_id) || ''
-    : ''
-  prescriptions.value = rxRes.data || []
-  pastConsultations.value = (consultRes.data || []).map((c: any) => ({ ...c, provider_name: c.profiles?.full_name || 'Staff' }))
-  pastLabResults.value = labRes.data || []
-  pendingOrders.value = ordersRes.data || []
+  // Cached so a patient already opened once on this device can be reopened
+  // offline — see useRecentPatientCache. The UI-state resets below (notes,
+  // consultType, etc.) still run every time regardless of cache/online state.
+  const { data } = await loadWithCache(patientId, async () => {
+    const [bioRes, cycleRes, rxRes, consultRes, labRes, ordersRes] = await Promise.all([
+      supabase.from('bio_details').select('*, patient_names(full_name)').eq('patient_id', patientId).single(),
+      supabase.from('cycles').select('*').eq('patient_id', patientId).neq('status', 'Closed').order('start_date', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('prescriptions').select('*').eq('patient_id', patientId).neq('status', 'Cancelled').order('date', { ascending: false }),
+      supabase.from('consultations').select('*, profiles:provider_profile_id(full_name)').eq('patient_id', patientId).order('date', { ascending: false }),
+      supabase.from('lab_results').select('*, lab_templates(name)').eq('patient_id', patientId).order('collected_on', { ascending: false }),
+      supabase.from('lab_test_orders').select('*').eq('patient_id', patientId).eq('status', 'Ordered').order('created_at', { ascending: false }),
+    ])
+    const cycleManagerNameValue = cycleRes.data?.cycle_manager_id
+      ? (await resolveCycleManagerNames(supabase, [cycleRes.data.cycle_manager_id])).get(cycleRes.data.cycle_manager_id) || ''
+      : ''
+    return {
+      patient: bioRes.data ? { ...bioRes.data, full_name: bioRes.data.patient_names?.full_name } : null,
+      cycle: cycleRes.data,
+      cycleManagerName: cycleManagerNameValue,
+      prescriptions: rxRes.data || [],
+      pastConsultations: (consultRes.data || []).map((c: any) => ({ ...c, provider_name: c.profiles?.full_name || 'Staff' })),
+      pastLabResults: labRes.data || [],
+      pendingOrders: ordersRes.data || [],
+    }
+  })
+
+  patient.value = data?.patient || null
+  cycle.value = data?.cycle || null
+  cycleManagerName.value = data?.cycleManagerName || ''
+  prescriptions.value = data?.prescriptions || []
+  pastConsultations.value = data?.pastConsultations || []
+  pastLabResults.value = data?.pastLabResults || []
+  pendingOrders.value = data?.pendingOrders || []
 
   notes.value = cycle.value?.physician_notes || ''
   consultType.value = 'Standard Consult'

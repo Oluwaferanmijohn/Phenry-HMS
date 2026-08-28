@@ -44,6 +44,9 @@
 import { ref, computed } from 'vue'
 import { computeAge } from '~/composables/useFormat'
 import { useProfile } from '~/composables/useAuth'
+import { useRecentPatientCache } from '~/composables/useRecentPatientCache'
+
+const { loadWithCache } = useRecentPatientCache()
 
 const ROLE_PATIENT_CAPS: Record<string, { allowConsultation?: boolean; allowVisitDoc?: boolean; allowLabActions?: boolean }> = {
   doctor: { allowConsultation: true },
@@ -91,11 +94,20 @@ async function openDetail(patientId: string) {
   activePatient.value = patients.value.find((p) => p.patient_id === patientId)
   showDetail.value = true
 
-  const [consultRes, labRes] = await Promise.all([
-    supabase.from('consultations').select('*, profiles:provider_profile_id(full_name)').eq('patient_id', patientId).order('date', { ascending: false }),
-    supabase.from('lab_results').select('*, lab_templates(name)').eq('patient_id', patientId).order('collected_on', { ascending: false }),
-  ])
-  activeConsultations.value = (consultRes.data || []).map((c: any) => ({ ...c, provider_name: c.profiles?.full_name || 'Staff' }))
-  activeLabResults.value = labRes.data || []
+  // Cached so this detail view still opens offline for any patient already
+  // looked at on this device — see useRecentPatientCache.
+  const { data } = await loadWithCache(patientId, async () => {
+    const [consultRes, labRes] = await Promise.all([
+      supabase.from('consultations').select('*, profiles:provider_profile_id(full_name)').eq('patient_id', patientId).order('date', { ascending: false }),
+      supabase.from('lab_results').select('*, lab_templates(name)').eq('patient_id', patientId).order('collected_on', { ascending: false }),
+    ])
+    return {
+      consultations: (consultRes.data || []).map((c: any) => ({ ...c, provider_name: c.profiles?.full_name || 'Staff' })),
+      labResults: labRes.data || [],
+    }
+  })
+
+  activeConsultations.value = data?.consultations || []
+  activeLabResults.value = data?.labResults || []
 }
 </script>

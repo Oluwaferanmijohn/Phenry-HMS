@@ -7,16 +7,16 @@
 --    were assigned to (not clinic-wide theatre awareness); Chief
 --    Embryologist and Lab Tech had zero access at all, despite
 --    chief_embryologist/overview.vue already querying it (silently empty
---    ever since). Also found and fixed while wiring this: BOTH
---    ScheduleProcedureModal.vue's insert AND two separate read queries
---    (SurgeryPage.vue, matron/overview.vue) were writing/embedding
---    `assigned_provider_id` — a column that has never existed. The real
---    column is `assigned_doctor_id`. Every "Schedule Procedure" submission
---    has been failing outright, and the Surgery page has been silently
---    empty for Matron/Nurse this whole time — this predates this round
---    entirely, found while building the Doctor/Embryologist/Lab Tech
---    visibility requested here. Fixed client-side; this migration just
---    grants the read access those pages need.
+--    ever since). Also worth noting: an earlier round of this same bugfix
+--    effort briefly "corrected" ScheduleProcedureModal.vue/SurgeryPage.vue/
+--    matron/overview.vue to reference `assigned_doctor_id` instead of
+--    `assigned_provider_id`, based on reading migration 006 in isolation —
+--    migration 007 (matron_role.sql) deliberately renames that column
+--    right after (Matron can be primary provider too, not just Doctor) and
+--    drops the old `report` column in favor of the separate
+--    operative_reports table. That client-side "fix" was reverted; the
+--    real column has always been `assigned_provider_id`. Flagging here so
+--    the mistake and its correction are both on the record.
 -- C. transfer_cryo_schedule — no structured way to record how many embryos
 --    a Transfer event actually used, which is what "embryos transferred vs
 --    remaining" needs as its source of truth.
