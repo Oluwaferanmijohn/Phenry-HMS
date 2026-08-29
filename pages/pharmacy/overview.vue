@@ -97,26 +97,20 @@ const pendingRx = computed(() => prescriptions.value)
 const pendingReq = computed(() => requisitions.value)
 
 async function dispense(r: any) {
-  await queueOrRun(`${r.medication} dispensed to ${r.patient_name}`, async () => {
-    const { error } = await supabase.from('prescriptions').update({ status: 'Dispensed' }).eq('id', r.id)
-    if (error) throw error
-
-    // Prescriptions carry no qty/inventory FK, so this deducts 1 unit per
-    // dispensed prescription against whichever inventory item's name
-    // matches the medication text — same convention the (working) side of
-    // requisition approval already uses.
-    const inv = matchInventoryItem(inventory.value, r.medication)
-    if (inv) {
-      const newQty = Math.max(0, inv.current_qty - 1)
-      const { error: invErr } = await supabase.from('pharmacy_inventory').update({ current_qty: newQty }).eq('id', inv.id)
-      if (invErr) throw invErr
-      inv.current_qty = newQty
-    } else {
-      toast(`No inventory match for "${r.medication}" — stock not adjusted`, 'warn')
+  const inv = matchInventoryItem(inventory.value, r.medication)
+  const newQty = inv ? Math.max(0, inv.current_qty - 1) : null
+  await queueOrRun(
+    `${r.medication} dispensed to ${r.patient_name}`,
+    [
+      { table: 'prescriptions', kind: 'update', payload: { status: 'Dispensed' }, match: { id: r.id } },
+      ...(inv ? [{ table: 'pharmacy_inventory', kind: 'update' as const, payload: { current_qty: newQty }, match: { id: inv.id } }] : []),
+    ],
+    () => {
+      if (inv) inv.current_qty = newQty
+      else toast(`No inventory match for "${r.medication}" — stock not adjusted`, 'warn')
+      prescriptions.value = prescriptions.value.filter((x) => x.id !== r.id)
     }
-
-    prescriptions.value = prescriptions.value.filter((x) => x.id !== r.id)
-  })
+  )
 }
 
 async function restock() {
@@ -127,37 +121,49 @@ async function restock() {
   const targetItemUnit = item.unit
   const qtyToAdd = restockQty.value
   const baseQty = item.current_qty
-  await queueOrRun(`${qtyToAdd} ${targetItemUnit} of ${targetItemName} added to stock`, async () => {
-    const { error } = await supabase.from('pharmacy_inventory').update({ current_qty: baseQty + qtyToAdd }).eq('id', targetItemId)
-    if (error) throw error
-    item.current_qty = baseQty + qtyToAdd
-  })
+  await queueOrRun(
+    `${qtyToAdd} ${targetItemUnit} of ${targetItemName} added to stock`,
+    { table: 'pharmacy_inventory', kind: 'update', payload: { current_qty: baseQty + qtyToAdd }, match: { id: targetItemId } },
+    () => { item.current_qty = baseQty + qtyToAdd }
+  )
   restockQty.value = null
 }
 
 async function approve(r: any) {
-  await queueOrRun('Requisition approved and deducted from stock', async () => {
-    const { error } = await supabase.from('requisitions').update({ status: 'Approved & Dispensed' }).eq('id', r.id)
-    if (error) throw error
-    for (const it of r.items || []) {
-      const inv = matchInventoryItem(inventory.value, it.name)
-      if (inv) {
-        const newQty = Math.max(0, inv.current_qty - Number(it.qty || 1))
-        await supabase.from('pharmacy_inventory').update({ current_qty: newQty }).eq('id', inv.id)
-        inv.current_qty = newQty
-      } else {
-        toast(`No inventory match for "${it.name}" — stock not adjusted`, 'warn')
-      }
+  const items = r.items || []
+  const matched: { inv: any; newQty: number }[] = []
+  const unmatchedNames: string[] = []
+  const runningQty = new Map<string, number>()
+  for (const it of items) {
+    const inv = matchInventoryItem(inventory.value, it.name)
+    if (inv) {
+      const currentQty = runningQty.has(inv.id) ? runningQty.get(inv.id)! : inv.current_qty
+      const newQty = Math.max(0, currentQty - Number(it.qty || 1))
+      runningQty.set(inv.id, newQty)
+      matched.push({ inv, newQty })
+    } else {
+      unmatchedNames.push(it.name)
     }
-    requisitions.value = requisitions.value.filter((x) => x.id !== r.id)
-  })
+  }
+  await queueOrRun(
+    'Requisition approved and deducted from stock',
+    [
+      { table: 'requisitions', kind: 'update', payload: { status: 'Approved & Dispensed' }, match: { id: r.id } },
+      ...matched.map(({ inv, newQty }) => ({ table: 'pharmacy_inventory', kind: 'update' as const, payload: { current_qty: newQty }, match: { id: inv.id } })),
+    ],
+    () => {
+      matched.forEach(({ inv, newQty }) => { inv.current_qty = newQty })
+      unmatchedNames.forEach((name) => toast(`No inventory match for "${name}" — stock not adjusted`, 'warn'))
+      requisitions.value = requisitions.value.filter((x) => x.id !== r.id)
+    }
+  )
 }
 
 async function deny(r: any) {
-  await queueOrRun('Requisition denied — out of stock', async () => {
-    const { error } = await supabase.from('requisitions').update({ status: 'Denied / Out of Stock' }).eq('id', r.id)
-    if (error) throw error
-    requisitions.value = requisitions.value.filter((x) => x.id !== r.id)
-  })
+  await queueOrRun(
+    'Requisition denied — out of stock',
+    { table: 'requisitions', kind: 'update', payload: { status: 'Denied / Out of Stock' }, match: { id: r.id } },
+    () => { requisitions.value = requisitions.value.filter((x) => x.id !== r.id) }
+  )
 }
 </script>

@@ -140,19 +140,19 @@ async function submitAction() {
   const rescheduleDate = newDate.value
   const documentedBy = profile.value!.id
   const targetEmbryosUsed = action === 'Done' && isTransferType.value && embryosUsed.value !== '' ? Number(embryosUsed.value) : null
-  await queueOrRun(`${it.type} for ${it.patient_name} marked ${action}`, async () => {
-    const patch: any = {
-      status: action,
-      notes,
-      documented_by: documentedBy,
-      documented_on: new Date().toISOString().slice(0, 10),
-    }
-    if (action === 'Postponed' && rescheduleDate) patch.scheduled_date = rescheduleDate
-    if (targetEmbryosUsed !== null) patch.embryos_used = targetEmbryosUsed
-    const { error } = await supabase.from('transfer_cryo_schedule').update(patch).eq('id', it.id)
-    if (error) throw error
-    await load()
-  })
+  const patch: any = {
+    status: action,
+    notes,
+    documented_by: documentedBy,
+    documented_on: new Date().toISOString().slice(0, 10),
+  }
+  if (action === 'Postponed' && rescheduleDate) patch.scheduled_date = rescheduleDate
+  if (targetEmbryosUsed !== null) patch.embryos_used = targetEmbryosUsed
+  await queueOrRun(
+    `${it.type} for ${it.patient_name} marked ${action}`,
+    { table: 'transfer_cryo_schedule', kind: 'update', payload: patch, match: { id: it.id } },
+    () => { load() }
+  )
   showAction.value = false
 }
 

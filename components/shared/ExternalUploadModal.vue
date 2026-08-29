@@ -33,13 +33,15 @@
 import { ref, watch } from 'vue'
 import { useSyncQueue } from '~/composables/useSyncQueue'
 import { useProfile } from '~/composables/useAuth'
+import { useToast } from '~/composables/useToast'
 
 const props = defineProps<{ modelValue: boolean; preselectedPatientId?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [boolean]; uploaded: [] }>()
 
 const supabase = useSupabaseClient()
 const profile = useProfile()
-const { queueOrRun } = useSyncQueue()
+const { toast } = useToast()
+const { queueOrRun, online } = useSyncQueue()
 
 const patients = ref<any[]>([])
 const patientId = ref('')
@@ -70,6 +72,16 @@ function onFile(e: Event) {
 
 async function submit() {
   if (!patientId.value) return
+
+  // File uploads can't go through the offline write-queue — a File object
+  // isn't something we can reliably persist and replay after the app
+  // restarts. Rather than pretending to queue it and silently losing the
+  // file, this action requires a live connection.
+  if (!online.value) {
+    toast("Uploading a document needs a connection — try again once you're back online", 'warn')
+    return
+  }
+
   submitting.value = true
   const targetPatientId = patientId.value
   const targetTitle = title.value || 'External Result'

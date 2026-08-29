@@ -94,14 +94,10 @@ async function save(which: 'preop' | 'opnotes' | 'postop') {
   if (which === 'opnotes') patch.op_notes = { ...opNotes }
   if (which === 'postop') patch.post_op = { ...postOp }
 
-  await queueOrRun(`${label} saved`, async () => {
-    const { error } = await supabase.from('operative_reports').update(patch).eq('surgery_id', targetSurgeryId)
-    if (error) throw error
-
-    if (which === 'opnotes') {
-      await supabase.from('surgery_schedule').update({ status: 'Completed' }).eq('id', targetSurgeryId)
-    }
-  })
+  await queueOrRun(`${label} saved`, [
+    { table: 'operative_reports', kind: 'update', payload: patch, match: { surgery_id: targetSurgeryId } },
+    ...(which === 'opnotes' ? [{ table: 'surgery_schedule', kind: 'update' as const, payload: { status: 'Completed' }, match: { id: targetSurgeryId } }] : []),
+  ])
   emit('saved')
 }
 </script>

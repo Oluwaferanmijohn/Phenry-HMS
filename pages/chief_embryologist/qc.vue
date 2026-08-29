@@ -93,13 +93,15 @@ async function logCheck(u: any, status: string) {
   const targetId = u.id
   const targetName = u.name
   const snapshot = { temp: u.temp, co2: u.co2, o2: u.o2, humidity: u.humidity }
-  await queueOrRun(`${targetName} logged as ${status}`, async () => {
-    const { error } = await supabase
-      .from('incubator_logs')
-      .update({ ...snapshot, status, last_checked: new Date().toISOString(), checked_by: profile.value!.id })
-      .eq('id', targetId)
-    if (error) throw error
-    u.status = status
-  })
+  // Timestamped at the moment of the real-world check (now), not whenever a
+  // queued write eventually lands — the queue can delay the sync, but it
+  // shouldn't misreport when the check actually happened.
+  const checkedAt = new Date().toISOString()
+  const checkedBy = profile.value!.id
+  await queueOrRun(
+    `${targetName} logged as ${status}`,
+    { table: 'incubator_logs', kind: 'update', payload: { ...snapshot, status, last_checked: checkedAt, checked_by: checkedBy }, match: { id: targetId } },
+    () => { u.status = status }
+  )
 }
 </script>

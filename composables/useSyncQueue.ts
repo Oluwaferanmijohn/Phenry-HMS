@@ -2,21 +2,34 @@ import { reactive, computed } from 'vue'
 import { useToast } from '~/composables/useToast'
 import { idbPut, idbDelete, idbGetAll, STORE_QUEUE } from '~/composables/useOfflineDb'
 
-// Two queued-write shapes now coexist here, on purpose:
+// Three things can be passed to queueOrRun now, on purpose:
 //
-//  - `ops` (WriteOp[])  — data, not a function. Persisted to IndexedDB, so a
-//                         write made offline survives a hard refresh or the
-//                         app/tab being killed while still offline. This is
-//                         the durable form — use it for any new call site.
-//  - `run` (closure)    — the original in-memory-only form every existing
-//                         call site in this file still passes today. It
-//                         keeps working exactly as before (queued, flushed
-//                         on reconnect) but — same limitation as before this
-//                         change — a closure can't be saved to IndexedDB, so
-//                         it's lost if the app is refreshed/killed while
-//                         still offline. Nothing regresses for these call
-//                         sites; migrate one to `ops` when you next touch it
-//                         if you want it to survive a hard refresh too.
+//  - `ops` (WriteOp[])   — data, not a function. Persisted to IndexedDB, so
+//                          a write made offline survives a hard refresh or
+//                          the app/tab being killed while still offline.
+//                          Prefer this for any call site that just needs
+//                          the DB write itself to be durable.
+//  - `onSuccess`         — an optional callback that runs right after the
+//                          write actually succeeds (immediately if online,
+//                          or when the queue flushes on reconnect). Used
+//                          for local optimistic UI updates or a manual
+//                          refetch that isn't itself a DB write. This is
+//                          NOT persisted — if the app is refreshed while a
+//                          write is still queued, the in-memory state it
+//                          would have updated doesn't exist any more
+//                          either, so there's nothing lost. Once the write
+//                          actually lands, the app-wide Realtime
+//                          subscription (plugins/realtime.client.ts) picks
+//                          up the DB change and refreshes the current
+//                          page's data anyway.
+//  - `run` (closure)     — the original in-memory-only form every
+//                          pre-existing call site in this codebase used
+//                          before this file was updated. Kept working
+//                          exactly as before (queued, flushed on
+//                          reconnect); same limitation as before this
+//                          change — lost if the app is refreshed/killed
+//                          while still offline, since a closure can't be
+//                          saved to IndexedDB.
 export type WriteOp =
   | { table: string; kind: 'insert'; payload: Record<string, any> }
   | { table: string; kind: 'update'; payload: Record<string, any>; match: Record<string, any> }
@@ -29,6 +42,7 @@ interface QueuedWrite {
   label: string
   ops?: WriteOp[] // present <=> persisted to IndexedDB (durable form)
   run?: () => Promise<void> | void // present <=> legacy in-memory-only form
+  onSuccess?: () => void // in-memory only, either form — see comment above
   createdAt: number
 }
 
@@ -66,9 +80,9 @@ export function useSyncQueue() {
   const supabase = useSupabaseClient()
 
   // Restores whatever was still pending from a previous session. Only `ops`
-  // (durable) entries can be restored this way — see the QueuedWrite comment
-  // above. Called once by plugins/sync.client.ts on app boot, safe to call
-  // again (no-op after the first successful hydration).
+  // (durable) entries can be restored this way — see the QueuedWrite
+  // comment above. Called once by plugins/sync.client.ts on app boot, safe
+  // to call again (no-op after the first successful hydration).
   async function hydrate() {
     if (state.hydrated) return
     state.hydrated = true
@@ -87,11 +101,17 @@ export function useSyncQueue() {
     } else if (item.run) {
       await item.run()
     }
+    item.onSuccess?.()
   }
 
-  // Accepts either the new durable form (a WriteOp or WriteOp[]) or the
-  // original closure form that every existing call site passes today.
-  async function queueOrRun(label: string, opsOrRun: WriteOp | WriteOp[] | (() => Promise<void> | void)) {
+  // Accepts either the new durable form (a WriteOp or WriteOp[], optionally
+  // with an onSuccess callback for local UI state) or the original closure
+  // form that pre-existing call sites pass.
+  async function queueOrRun(
+    label: string,
+    opsOrRun: WriteOp | WriteOp[] | (() => Promise<void> | void),
+    onSuccess?: () => void
+  ) {
     const isClosure = typeof opsOrRun === 'function'
     const ops = isClosure ? undefined : (Array.isArray(opsOrRun) ? opsOrRun : [opsOrRun])
 
@@ -99,6 +119,7 @@ export function useSyncQueue() {
       try {
         if (isClosure) await opsOrRun()
         else for (const op of ops!) await runOp(supabase, op)
+        onSuccess?.()
         toast(label, 'success')
       } catch (err) {
         toast('Something went wrong — please try again', 'warn')
@@ -109,12 +130,16 @@ export function useSyncQueue() {
         id: crypto.randomUUID(),
         label,
         createdAt: Date.now(),
+        onSuccess,
         ...(isClosure ? { run: opsOrRun as () => Promise<void> | void } : { ops }),
       }
       state.queue.push(item)
       if (item.ops) {
         try {
-          await idbPut(STORE_QUEUE, item)
+          // onSuccess is deliberately not included — it can't be
+          // serialized, and isn't needed after a real refresh (see the
+          // QueuedWrite comment above).
+          await idbPut(STORE_QUEUE, { id: item.id, label: item.label, ops: item.ops, createdAt: item.createdAt })
         } catch {
           // Still held in memory even if the IndexedDB write fails — better
           // than silently dropping it, though it won't survive a hard refresh.

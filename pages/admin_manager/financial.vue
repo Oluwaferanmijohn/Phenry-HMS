@@ -93,17 +93,17 @@ async function viewProof(m: any) {
 }
 
 async function approve(m: any) {
-  await queueOrRun(`${m.patient_name}'s ${m.label} approved`, async () => {
-    const { error } = await supabase.rpc('approve_milestone', { p_milestone_id: m.id })
-    if (error) throw error
-    await load()
-  })
+  await queueOrRun(
+    `${m.patient_name}'s ${m.label} approved`,
+    { kind: 'rpc', rpcName: 'approve_milestone', payload: { p_milestone_id: m.id } },
+    () => { load() }
+  )
 }
 async function reject(m: any) {
-  await queueOrRun(`${m.patient_name}'s ${m.label} flagged for follow-up`, async () => {
-    const { error } = await supabase.rpc('reject_milestone', { p_milestone_id: m.id })
-    if (error) throw error
-    await load()
-  })
+  await queueOrRun(
+    `${m.patient_name}'s ${m.label} flagged for follow-up`,
+    { kind: 'rpc', rpcName: 'reject_milestone', payload: { p_milestone_id: m.id } },
+    () => { load() }
+  )
 }
 </script>

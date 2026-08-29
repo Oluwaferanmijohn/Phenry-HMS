@@ -62,12 +62,14 @@ function bedDescription(b: any) {
 
 async function clear(b: any) {
   const label = b.status === 'Reserved' ? `${b.id} reservation cancelled` : `${b.id} cleared and marked free`
-  await queueOrRun(label, async () => {
-    const { error } = await supabase.from('recovery_beds').update({ status: 'Free', occupied_by_patient_id: null, occupied_since: null, reserved_for_date: null }).eq('id', b.id)
-    if (error) throw error
-    b.status = 'Free'
-    b.patient_name = null
-    b.reserved_for_date = null
-  })
+  await queueOrRun(
+    label,
+    { table: 'recovery_beds', kind: 'update', payload: { status: 'Free', occupied_by_patient_id: null, occupied_since: null, reserved_for_date: null }, match: { id: b.id } },
+    () => {
+      b.status = 'Free'
+      b.patient_name = null
+      b.reserved_for_date = null
+    }
+  )
 }
 </script>

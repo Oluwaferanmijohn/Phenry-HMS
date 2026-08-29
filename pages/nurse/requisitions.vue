@@ -79,17 +79,11 @@ async function submit() {
   const requestedBy = profile.value!.id
   const snapshotItems = itemRows.value.map((r) => ({ ...r }))
   const snapshotUrgency = urgency.value
-  await queueOrRun('Requisition submitted to pharmacy', async () => {
-    const { error } = await supabase.from('requisitions').insert({
-      requested_by_profile_id: requestedBy,
-      ward: 'IVF Ward 2',
-      items: snapshotItems,
-      urgency: snapshotUrgency,
-      status: 'Pending',
-    })
-    if (error) throw error
-    await load()
-  })
+  await queueOrRun(
+    'Requisition submitted to pharmacy',
+    { table: 'requisitions', kind: 'insert', payload: { requested_by_profile_id: requestedBy, ward: 'IVF Ward 2', items: snapshotItems, urgency: snapshotUrgency, status: 'Pending' } },
+    () => { load() }
+  )
   itemRows.value = [{ name: REQUESTABLE_ITEMS[0], qty: 10 }]
   urgency.value = 'Routine'
 }

@@ -173,22 +173,28 @@ async function saveInvestigation() {
   const targetUnit = invDraft.unit
   const targetRefRange = invDraft.ref_range
   const targetDate = invDraft.date
-  await queueOrRun(`${targetHormone} result saved for ${targetPatientName}`, async () => {
-    const { error } = await supabase.from('cycle_investigations').insert({
-      cycle_id: targetCycleId,
-      hormone: targetHormone,
-      value: Number(targetValue),
-      unit: targetUnit,
-      ref_range: targetRefRange,
-      date: targetDate,
-      flag: computeFlag(targetValue, targetRefRange),
-    })
-    if (error) throw error
-    if (cycle.value?.id === targetCycleId) {
-      const { data } = await supabase.from('cycle_investigations').select('*').eq('cycle_id', targetCycleId).order('date', { ascending: false })
-      investigations.value = data || []
+  await queueOrRun(
+    `${targetHormone} result saved for ${targetPatientName}`,
+    {
+      table: 'cycle_investigations',
+      kind: 'insert',
+      payload: {
+        cycle_id: targetCycleId,
+        hormone: targetHormone,
+        value: Number(targetValue),
+        unit: targetUnit,
+        ref_range: targetRefRange,
+        date: targetDate,
+        flag: computeFlag(targetValue, targetRefRange),
+      },
+    },
+    () => {
+      if (cycle.value?.id === targetCycleId) {
+        supabase.from('cycle_investigations').select('*').eq('cycle_id', targetCycleId).order('date', { ascending: false })
+          .then(({ data }: any) => { investigations.value = data || [] })
+      }
     }
-  })
+  )
   savingInv.value = false
   showInvestigation.value = false
 }
@@ -222,21 +228,15 @@ async function saveUltrasound() {
   const targetRightOvary = parseFollicles(usDraft.rightOvary)
   const targetLeftOvary = parseFollicles(usDraft.leftOvary)
   const targetDate = usDraft.date
-  await queueOrRun(`Follicular scan logged for ${targetPatientName}`, async () => {
-    const { data, error } = await supabase
-      .from('cycle_ultrasounds')
-      .insert({
-        cycle_id: targetCycleId,
-        endometrial: targetEndometrial,
-        right_ovary: targetRightOvary,
-        left_ovary: targetLeftOvary,
-        date: targetDate,
-      })
-      .select()
-      .single()
-    if (error) throw error
-    if (cycle.value?.id === targetCycleId) ultrasound.value = data
-  })
+  await queueOrRun(
+    `Follicular scan logged for ${targetPatientName}`,
+    { table: 'cycle_ultrasounds', kind: 'insert', payload: { cycle_id: targetCycleId, endometrial: targetEndometrial, right_ovary: targetRightOvary, left_ovary: targetLeftOvary, date: targetDate } },
+    () => {
+      if (cycle.value?.id === targetCycleId) {
+        ultrasound.value = { cycle_id: targetCycleId, endometrial: targetEndometrial, right_ovary: targetRightOvary, left_ovary: targetLeftOvary, date: targetDate }
+      }
+    }
+  )
   savingUs.value = false
   showUltrasound.value = false
 }

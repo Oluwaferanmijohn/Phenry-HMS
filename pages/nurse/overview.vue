@@ -124,15 +124,16 @@ async function sendRequisition() {
   const snapshotRoute = reqRoute.value
   const snapshotLoc = reqLoc.value
   const snapshotUrgency = reqUrgency.value
-  await queueOrRun(`Requisition for ${snapshotItem} sent to pharmacy`, async () => {
-    const { error } = await supabase.from('requisitions').insert({
+  await queueOrRun(`Requisition for ${snapshotItem} sent to pharmacy`, {
+    table: 'requisitions',
+    kind: 'insert',
+    payload: {
       requested_by_profile_id: requestedBy,
       ward: 'IVF Ward 2',
       items: [{ name: snapshotItem, qty: snapshotQty, route: snapshotRoute, deliverTo: snapshotLoc }],
       urgency: snapshotUrgency,
       status: 'Pending',
-    })
-    if (error) throw error
+    },
   })
   resetReq()
 }

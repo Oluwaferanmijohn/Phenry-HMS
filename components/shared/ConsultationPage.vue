@@ -309,11 +309,11 @@ async function advanceStage() {
   const today = new Date().toISOString().slice(0, 10)
   if (targetNextStage === 'OPU' && !cycle.value.opu_date) patch.opu_date = today
   if (targetNextStage === 'Transfer' && !cycle.value.transfer_date) patch.transfer_date = today
-  await queueOrRun(`Cycle advanced to ${targetNextStage} for ${targetPatientName}`, async () => {
-    const { error } = await supabase.from('cycles').update(patch).eq('id', targetCycleId)
-    if (error) throw error
-    if (cycle.value?.id === targetCycleId) Object.assign(cycle.value, patch)
-  })
+  await queueOrRun(
+    `Cycle advanced to ${targetNextStage} for ${targetPatientName}`,
+    { table: 'cycles', kind: 'update', payload: patch, match: { id: targetCycleId } },
+    () => { if (cycle.value?.id === targetCycleId) Object.assign(cycle.value, patch) }
+  )
   advancingStage.value = false
 }
 
@@ -324,11 +324,11 @@ async function closeCycle() {
   const targetPatientName = patient.value.full_name
   const targetOutcome = outcomeDraft.value
   const patch = { status: 'Closed', outcome: targetOutcome }
-  await queueOrRun(`Cycle closed for ${targetPatientName} — ${targetOutcome}`, async () => {
-    const { error } = await supabase.from('cycles').update(patch).eq('id', targetCycleId)
-    if (error) throw error
-    if (cycle.value?.id === targetCycleId) Object.assign(cycle.value, patch)
-  })
+  await queueOrRun(
+    `Cycle closed for ${targetPatientName} — ${targetOutcome}`,
+    { table: 'cycles', kind: 'update', payload: patch, match: { id: targetCycleId } },
+    () => { if (cycle.value?.id === targetCycleId) Object.assign(cycle.value, patch) }
+  )
   closingCycle.value = false
   showCloseCycle.value = false
 }
@@ -345,21 +345,22 @@ async function finalize() {
   const targetNotes = notes.value
   const targetDiagnosis = diagnosis.value
   const targetIcd = icd.value
-  await queueOrRun(`Consultation finalized for ${targetPatientName}`, async () => {
-    const { error } = await supabase.from('consultations').insert({
-      patient_id: targetPatientId,
-      provider_profile_id: providerProfileId,
-      provider_role: providerRole,
-      type: targetType,
-      notes: targetNotes,
-      diagnosis: targetDiagnosis,
-      icd10: targetIcd,
-    })
-    if (error) throw error
-    if (targetCycleId) {
-      await supabase.from('cycles').update({ physician_notes: targetNotes }).eq('id', targetCycleId)
-    }
-  })
+  await queueOrRun(`Consultation finalized for ${targetPatientName}`, [
+    {
+      table: 'consultations',
+      kind: 'insert',
+      payload: {
+        patient_id: targetPatientId,
+        provider_profile_id: providerProfileId,
+        provider_role: providerRole,
+        type: targetType,
+        notes: targetNotes,
+        diagnosis: targetDiagnosis,
+        icd10: targetIcd,
+      },
+    },
+    ...(targetCycleId ? [{ table: 'cycles', kind: 'update' as const, payload: { physician_notes: targetNotes }, match: { id: targetCycleId } }] : []),
+  ])
   finalizing.value = false
   router.push(`/${props.role}/patients`)
 }
@@ -372,8 +373,10 @@ async function scheduleFollowUp() {
   const providerProfileId = profile.value!.id
   const targetDate = followUpDate.value
   const targetTime = followUpTime.value
-  await queueOrRun(`Follow-up booked for ${targetPatientName} on ${fmtDate(targetDate)}`, async () => {
-    const { error } = await supabase.from('appointments').insert({
+  await queueOrRun(`Follow-up booked for ${targetPatientName} on ${fmtDate(targetDate)}`, {
+    table: 'appointments',
+    kind: 'insert',
+    payload: {
       patient_id: targetPatientId,
       provider_role: providerRole,
       provider_profile_id: providerProfileId,
@@ -382,8 +385,7 @@ async function scheduleFollowUp() {
       time: targetTime,
       duration: 30,
       status: 'Scheduled',
-    })
-    if (error) throw error
+    },
   })
 }
 </script>

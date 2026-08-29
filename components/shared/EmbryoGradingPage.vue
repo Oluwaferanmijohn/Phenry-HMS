@@ -121,9 +121,11 @@ async function save() {
     total: batches[d.key].total === '' ? null : Number(batches[d.key].total),
     grades: [...batches[d.key].grades],
   }))
-  await queueOrRun(`Embryo grading saved for ${targetPatientName}`, async () => {
-    const { error } = await supabase.from('embryo_batches').upsert(snapshot, { onConflict: 'patient_id,day_key' })
-    if (error) throw error
+  await queueOrRun(`Embryo grading saved for ${targetPatientName}`, {
+    table: 'embryo_batches',
+    kind: 'upsert',
+    payload: snapshot,
+    onConflict: 'patient_id,day_key',
   })
   saving.value = false
 }

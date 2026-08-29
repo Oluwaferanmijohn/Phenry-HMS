@@ -82,17 +82,17 @@ await useAsyncData('admin-overview', async () => {
 const activeStaffCount = computed(() => staff.value.filter((s) => s.active).length)
 
 async function approve(m: any) {
-  await queueOrRun(`${m.patient_name}'s ${m.label} approved`, async () => {
-    const { error } = await supabase.rpc('approve_milestone', { p_milestone_id: m.id })
-    if (error) throw error
-    pending.value = pending.value.filter((x) => x.id !== m.id)
-  })
+  await queueOrRun(
+    `${m.patient_name}'s ${m.label} approved`,
+    { kind: 'rpc', rpcName: 'approve_milestone', payload: { p_milestone_id: m.id } },
+    () => { pending.value = pending.value.filter((x) => x.id !== m.id) }
+  )
 }
 async function reject(m: any) {
-  await queueOrRun(`${m.patient_name}'s ${m.label} flagged for follow-up`, async () => {
-    const { error } = await supabase.rpc('reject_milestone', { p_milestone_id: m.id })
-    if (error) throw error
-    pending.value = pending.value.filter((x) => x.id !== m.id)
-  })
+  await queueOrRun(
+    `${m.patient_name}'s ${m.label} flagged for follow-up`,
+    { kind: 'rpc', rpcName: 'reject_milestone', payload: { p_milestone_id: m.id } },
+    () => { pending.value = pending.value.filter((x) => x.id !== m.id) }
+  )
 }
 </script>

@@ -121,11 +121,11 @@ async function advanceStage() {
   const today = new Date().toISOString().slice(0, 10)
   if (targetNextStage === 'OPU' && !cycle.value.opu_date) patch.opu_date = today
   if (targetNextStage === 'Transfer' && !cycle.value.transfer_date) patch.transfer_date = today
-  await queueOrRun(`Cycle advanced to ${targetNextStage} for ${targetPatientName}`, async () => {
-    const { error } = await supabase.from('cycles').update(patch).eq('id', targetCycleId)
-    if (error) throw error
-    if (cycle.value && props.cycleId === targetCycleId) Object.assign(cycle.value, patch)
-  })
+  await queueOrRun(
+    `Cycle advanced to ${targetNextStage} for ${targetPatientName}`,
+    { table: 'cycles', kind: 'update', payload: patch, match: { id: targetCycleId } },
+    () => { if (cycle.value && props.cycleId === targetCycleId) Object.assign(cycle.value, patch) }
+  )
   advancing.value = false
   emit('updated')
 }
@@ -137,11 +137,11 @@ async function closeCycle() {
   const targetPatientName = props.patientName
   const targetOutcome = outcomeDraft.value
   const patch = { status: 'Closed', outcome: targetOutcome }
-  await queueOrRun(`Cycle closed for ${targetPatientName} — ${targetOutcome}`, async () => {
-    const { error } = await supabase.from('cycles').update(patch).eq('id', targetCycleId)
-    if (error) throw error
-    if (cycle.value && props.cycleId === targetCycleId) Object.assign(cycle.value, patch)
-  })
+  await queueOrRun(
+    `Cycle closed for ${targetPatientName} — ${targetOutcome}`,
+    { table: 'cycles', kind: 'update', payload: patch, match: { id: targetCycleId } },
+    () => { if (cycle.value && props.cycleId === targetCycleId) Object.assign(cycle.value, patch) }
+  )
   closing.value = false
   showClose.value = false
   emit('updated')
@@ -155,14 +155,16 @@ async function reassignManager() {
   const targetNurseId = reassignNurseId.value || null
   const nurse = nurses.value.find((n) => n.id === reassignNurseId.value)
   const nurseFullName = nurse?.full_name || ''
-  await queueOrRun(`Cycle manager ${nurse ? 'set to ' + nurseFullName : 'unassigned'} for ${targetPatientName}`, async () => {
-    const { error } = await supabase.from('cycles').update({ cycle_manager_id: targetNurseId }).eq('id', targetCycleId)
-    if (error) throw error
-    if (cycle.value && props.cycleId === targetCycleId) {
-      cycle.value.cycle_manager_id = targetNurseId
-      cycleManagerName.value = nurseFullName
+  await queueOrRun(
+    `Cycle manager ${nurse ? 'set to ' + nurseFullName : 'unassigned'} for ${targetPatientName}`,
+    { table: 'cycles', kind: 'update', payload: { cycle_manager_id: targetNurseId }, match: { id: targetCycleId } },
+    () => {
+      if (cycle.value && props.cycleId === targetCycleId) {
+        cycle.value.cycle_manager_id = targetNurseId
+        cycleManagerName.value = nurseFullName
+      }
     }
-  })
+  )
   reassigning.value = false
   showReassign.value = false
   emit('updated')

@@ -80,15 +80,17 @@ async function save() {
   saving.value = true
   const targetId = active.value.id
   const snapshot = { name: draft.name, category: draft.category, description: draft.description, variables: draft.variables.map((v: any) => ({ ...v })) }
-  await queueOrRun(`Template "${snapshot.name}" saved`, async () => {
-    const { error } = await supabase.from('lab_templates').update(snapshot).eq('id', targetId)
-    if (error) throw error
-    const idx = templates.value.findIndex((t) => t.id === targetId)
-    if (idx !== -1) {
-      templates.value[idx] = { ...templates.value[idx], ...snapshot }
-      if (active.value?.id === targetId) active.value = templates.value[idx]
+  await queueOrRun(
+    `Template "${snapshot.name}" saved`,
+    { table: 'lab_templates', kind: 'update', payload: snapshot, match: { id: targetId } },
+    () => {
+      const idx = templates.value.findIndex((t) => t.id === targetId)
+      if (idx !== -1) {
+        templates.value[idx] = { ...templates.value[idx], ...snapshot }
+        if (active.value?.id === targetId) active.value = templates.value[idx]
+      }
     }
-  })
+  )
   saving.value = false
 }
 </script>

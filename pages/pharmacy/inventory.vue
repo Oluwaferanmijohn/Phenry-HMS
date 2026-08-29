@@ -72,16 +72,18 @@ async function logShipment() {
   const baseQty = item.current_qty
   const targetExpiry = expiry.value
   const targetBatch = batch.value
-  await queueOrRun(`Shipment logged — ${item.name} +${qtyReceived}`, async () => {
-    const patch: any = { current_qty: baseQty + qtyReceived }
-    if (targetExpiry) patch.expiry = targetExpiry
-    if (targetBatch) patch.batch_number = targetBatch
-    const { error } = await supabase.from('pharmacy_inventory').update(patch).eq('id', targetItemId)
-    if (error) throw error
-    item.current_qty = patch.current_qty
-    if (patch.batch_number) item.batch_number = patch.batch_number
-    if (patch.expiry) item.expiry = patch.expiry
-  })
+  const patch: any = { current_qty: baseQty + qtyReceived }
+  if (targetExpiry) patch.expiry = targetExpiry
+  if (targetBatch) patch.batch_number = targetBatch
+  await queueOrRun(
+    `Shipment logged — ${item.name} +${qtyReceived}`,
+    { table: 'pharmacy_inventory', kind: 'update', payload: patch, match: { id: targetItemId } },
+    () => {
+      item.current_qty = patch.current_qty
+      if (patch.batch_number) item.batch_number = patch.batch_number
+      if (patch.expiry) item.expiry = patch.expiry
+    }
+  )
   qty.value = null
   batch.value = ''
   expiry.value = ''

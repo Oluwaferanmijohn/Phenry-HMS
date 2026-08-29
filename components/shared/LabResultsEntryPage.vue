@@ -144,18 +144,22 @@ async function save() {
   const targetRemarks = remarks.value
   const enteredByProfileId = profile.value!.id
 
-  await queueOrRun(`${targetTemplateName} results saved for ${targetPatientName}`, async () => {
-    const { error } = await supabase.from('lab_results').insert({
-      patient_id: targetPatientId,
-      template_id: targetTemplateId,
-      entered_by_profile_id: enteredByProfileId,
-      collected_on: targetCollectedOn,
-      values: valuesPayload,
-      remarks: targetRemarks,
-    })
-    if (error) throw error
-    if (patientId.value === targetPatientId) await loadOnFile()
-  })
+  await queueOrRun(
+    `${targetTemplateName} results saved for ${targetPatientName}`,
+    {
+      table: 'lab_results',
+      kind: 'insert',
+      payload: {
+        patient_id: targetPatientId,
+        template_id: targetTemplateId,
+        entered_by_profile_id: enteredByProfileId,
+        collected_on: targetCollectedOn,
+        values: valuesPayload,
+        remarks: targetRemarks,
+      },
+    },
+    () => { if (patientId.value === targetPatientId) loadOnFile() }
+  )
   submitting.value = false
   resetForm()
 }

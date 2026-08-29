@@ -94,11 +94,11 @@ await useAsyncData('receptionist-overview', load)
 const waiting = computed(() => today.value.filter((a) => a.status === 'Waiting'))
 
 async function setStatus(a: any, status: string) {
-  await queueOrRun(`${a.patient_name} marked ${status}`, async () => {
-    const { error } = await supabase.from('appointments').update({ status }).eq('id', a.id)
-    if (error) throw error
-    a.status = status
-  })
+  await queueOrRun(
+    `${a.patient_name} marked ${status}`,
+    { table: 'appointments', kind: 'update', payload: { status }, match: { id: a.id } },
+    () => { a.status = status }
+  )
 }
 
 function openReschedule(a: any) {

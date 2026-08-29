@@ -47,16 +47,11 @@ async function submit() {
   const targetPatientName = props.appointment.patient_name
   const targetDate = newDate.value
   const targetTime = newTime.value
-  await queueOrRun(`${targetPatientName}'s visit moved to ${fmtDate(targetDate)} ${formatTime12(targetTime)}`, async () => {
-    const { data, error } = await supabase
-      .from('appointments')
-      .update({ date: targetDate, time: targetTime, status: 'Scheduled' })
-      .eq('id', targetAppointmentId)
-      .select()
-      .single()
-    if (error) throw error
-    emit('rescheduled', data)
-  })
+  await queueOrRun(
+    `${targetPatientName}'s visit moved to ${fmtDate(targetDate)} ${formatTime12(targetTime)}`,
+    { table: 'appointments', kind: 'update', payload: { date: targetDate, time: targetTime, status: 'Scheduled' }, match: { id: targetAppointmentId } },
+    () => { emit('rescheduled', { id: targetAppointmentId, date: targetDate, time: targetTime, status: 'Scheduled' }) }
+  )
   submitting.value = false
   emit('update:modelValue', false)
 }

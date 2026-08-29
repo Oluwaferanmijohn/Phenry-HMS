@@ -67,11 +67,11 @@ async function save() {
   const morning = [...duty.morning]
   const afternoon = [...duty.afternoon]
   const night = [...duty.night]
-  await queueOrRun(`Duty roster updated for ${fmtDate(dateStr)}`, async () => {
-    const { error } = await supabase
-      .from('duty_roster')
-      .upsert({ date: dateStr, morning, afternoon, night }, { onConflict: 'date' })
-    if (error) throw error
+  await queueOrRun(`Duty roster updated for ${fmtDate(dateStr)}`, {
+    table: 'duty_roster',
+    kind: 'upsert',
+    payload: { date: dateStr, morning, afternoon, night },
+    onConflict: 'date',
   })
   submitting.value = false
   emit('saved')

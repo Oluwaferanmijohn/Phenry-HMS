@@ -92,23 +92,26 @@ async function submit() {
     .order('cycle_number', { ascending: true })
   const cycleNumber = (priorCycles?.length || 0) + 1
 
-  await queueOrRun(`${targetType} started`, async () => {
-    const { error } = await supabase.from('cycles').insert({
-      patient_id: targetPatientId,
-      cycle_number: cycleNumber,
-      prior_cycles: priorCycles || [],
-      protocol: targetProtocol,
-      type: targetType,
-      start_date: targetStartDate,
-      stage: 'Baseline',
-      cycle_day: 1,
-      status: 'Active',
-      cycle_manager_id: targetCycleManagerId,
-      physician_notes: `Cycle started by ${providerLabel}.`,
-    })
-    if (error) throw error
-    await supabase.from('bio_details').update({ status: 'Active' }).eq('patient_id', targetPatientId)
-  })
+  await queueOrRun(`${targetType} started`, [
+    {
+      table: 'cycles',
+      kind: 'insert',
+      payload: {
+        patient_id: targetPatientId,
+        cycle_number: cycleNumber,
+        prior_cycles: priorCycles || [],
+        protocol: targetProtocol,
+        type: targetType,
+        start_date: targetStartDate,
+        stage: 'Baseline',
+        cycle_day: 1,
+        status: 'Active',
+        cycle_manager_id: targetCycleManagerId,
+        physician_notes: `Cycle started by ${providerLabel}.`,
+      },
+    },
+    { table: 'bio_details', kind: 'update', payload: { status: 'Active' }, match: { patient_id: targetPatientId } },
+  ])
   submitting.value = false
   emit('started')
   emit('update:modelValue', false)

@@ -113,31 +113,31 @@ async function submit() {
   const targetBedId = bedId.value || null
   const targetNotes = notes.value
 
-  await queueOrRun(`${targetProcedure} scheduled`, async () => {
-    const { error } = await supabase.from('surgery_schedule').insert({
-      patient_id: targetPatientId,
-      procedure: targetProcedure,
-      date: targetDate,
-      time: targetTime,
-      location: targetLocation,
-      assigned_provider_id: targetProviderId,
-      recovery_bed_id: targetBedId,
-      status: 'Scheduled',
-      notes: targetNotes,
-    })
-    if (error) throw error
-
-    if (targetBedId) {
-      await supabase
-        .from('recovery_beds')
-        .update(
-          isNow
-            ? { status: 'Occupied', occupied_by_patient_id: targetPatientId, occupied_since: new Date().toISOString(), reserved_for_date: null }
-            : { status: 'Reserved', occupied_by_patient_id: targetPatientId, occupied_since: null, reserved_for_date: targetDate }
-        )
-        .eq('id', targetBedId)
-    }
-  })
+  await queueOrRun(`${targetProcedure} scheduled`, [
+    {
+      table: 'surgery_schedule',
+      kind: 'insert',
+      payload: {
+        patient_id: targetPatientId,
+        procedure: targetProcedure,
+        date: targetDate,
+        time: targetTime,
+        location: targetLocation,
+        assigned_provider_id: targetProviderId,
+        recovery_bed_id: targetBedId,
+        status: 'Scheduled',
+        notes: targetNotes,
+      },
+    },
+    ...(targetBedId ? [{
+      table: 'recovery_beds',
+      kind: 'update' as const,
+      payload: isNow
+        ? { status: 'Occupied', occupied_by_patient_id: targetPatientId, occupied_since: new Date().toISOString(), reserved_for_date: null }
+        : { status: 'Reserved', occupied_by_patient_id: targetPatientId, occupied_since: null, reserved_for_date: targetDate },
+      match: { id: targetBedId },
+    }] : []),
+  ])
 
   submitting.value = false
   emit('scheduled')
