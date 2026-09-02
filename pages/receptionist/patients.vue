@@ -40,6 +40,14 @@
           <div><div class="muted" style="font-size:10.5px;">BLOOD GROUP</div><div style="font-weight:600; font-size:12.5px;">{{ activeProfile.blood_group || '—' }}</div></div>
           <div><div class="muted" style="font-size:10.5px;">STATUS</div><StatusBadge :status="activeProfile.status" /></div>
         </div>
+        <div class="card-pad" style="padding:10px 12px; background:var(--bg); border-radius:var(--radius-sm);">
+          <div class="grid grid-4" style="gap:10px;">
+            <div><div class="muted" style="font-size:10.5px;">SEX</div><div style="font-weight:600; font-size:12.5px;">{{ activeProfile.sex || '—' }}</div></div>
+            <div><div class="muted" style="font-size:10.5px;">REGISTERED</div><div style="font-weight:600; font-size:12.5px;">{{ activeProfile.registered_on || '—' }}</div></div>
+            <div><div class="muted" style="font-size:10.5px;">REFERRAL SOURCE</div><div style="font-weight:600; font-size:12.5px;">{{ activeProfile.referral_source || '—' }}</div></div>
+            <div><div class="muted" style="font-size:10.5px;">REGISTRATION CONSENT</div><div style="font-weight:600; font-size:12.5px;">{{ activeProfile.registration_consent_at ? 'Confirmed' : 'Not recorded' }}</div></div>
+          </div>
+        </div>
         <hr class="hr" />
         <b style="font-size:13px;">Contact</b>
         <p style="font-size:12.5px; margin-top:6px; color:var(--text-700);"><Icon name="phone" :size="11" /> {{ activeProfile.phone || '—' }} &nbsp; <Icon name="mail" :size="11" /> {{ activeProfile.email || '—' }}</p>
@@ -87,8 +95,13 @@ const filtered = computed(() => {
 })
 
 async function openProfile(patientId: string) {
-  const { data } = await supabase.rpc('patient_front_desk_profile', { p_patient_id: patientId })
-  activeProfile.value = data?.[0] || null
+  const { data, error } = await supabase.rpc('patient_front_desk_profile_v2', { p_patient_id: patientId })
+  if (error) {
+    const fallback = await supabase.rpc('patient_front_desk_profile', { p_patient_id: patientId })
+    activeProfile.value = fallback.data?.[0] || null
+  } else {
+    activeProfile.value = data || null
+  }
   showProfile.value = true
 }
 

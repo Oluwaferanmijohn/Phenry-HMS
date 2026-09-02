@@ -47,7 +47,11 @@ async function runOp(supabase: any, op: WriteOp) {
     let query = supabase.from(op.table).update(op.payload)
     for (const [key, value] of Object.entries(op.match)) query = query.eq(key, value)
     if (op.expectedUpdatedAt) query = query.eq('updated_at', op.expectedUpdatedAt)
-    const { data, error } = await query.select('id')
+    // Not every table uses an `id` primary key. bio_details, for example,
+    // is keyed by patient_id. Select a column we know exists because it was
+    // already used in the match instead of assuming a universal schema.
+    const returnColumn = Object.keys(op.match)[0] || '*'
+    const { data, error } = await query.select(returnColumn)
     if (error) throw error
     if (op.expectedUpdatedAt && (!data || data.length === 0)) {
       throw new Error(`Conflict: ${op.table} changed on the server while this device was offline`)
@@ -67,7 +71,8 @@ async function runOp(supabase: any, op: WriteOp) {
     let query = supabase.from(op.table).delete()
     for (const [key, value] of Object.entries(op.match)) query = query.eq(key, value)
     if (op.expectedUpdatedAt) query = query.eq('updated_at', op.expectedUpdatedAt)
-    const { data, error } = await query.select('id')
+    const returnColumn = Object.keys(op.match)[0] || '*'
+    const { data, error } = await query.select(returnColumn)
     if (error) throw error
     if (op.expectedUpdatedAt && (!data || data.length === 0)) {
       throw new Error(`Conflict: ${op.table} changed on the server while this device was offline`)

@@ -108,6 +108,11 @@ async function submit() {
     toast('First name, surname, and date of birth are required', 'warn')
     return
   }
+  if (!draft.consent) {
+    step.value = 3
+    toast('Patient consent must be confirmed before registration', 'warn')
+    return
+  }
   submitting.value = true
   const { data, error } = await supabase.rpc('register_new_patient', {
     p_first: draft.first,
@@ -130,6 +135,8 @@ async function submit() {
   }
 
   const mrn = data[0].mrn
+  const consentResult = await supabase.rpc('record_registration_consent', { p_patient_id: mrn })
+  if (consentResult.error) toast('Patient registered, but the consent timestamp could not be recorded', 'warn')
 
   // Registration and portal-account creation are two separate calls — the
   // account needs the service-role key (server route), the RPC doesn't.

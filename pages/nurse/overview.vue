@@ -19,7 +19,7 @@
 
     <div class="grid grid-2">
       <div class="card">
-        <div class="card-header"><h3><Icon name="activity" :size="15" /> Vitals Logging</h3></div>
+        <div class="card-header"><h3><Icon name="activity" :size="15" /> Quick Vitals</h3><NuxtLink :to="`/nurse/vitals${vitalsPatient ? `?patient=${vitalsPatient}` : ''}`" class="btn btn-secondary btn-sm">Open full vitals</NuxtLink></div>
         <div class="card-body">
           <div class="field"><label>Select Patient</label><select v-model="vitalsPatient" class="input"><option v-for="p in patients" :key="p.patient_id" :value="p.patient_id">{{ p.full_name }}</option></select></div>
           <div class="form-row">

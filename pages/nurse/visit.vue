@@ -3,6 +3,7 @@
     <div class="page-header">
       <div><h1>Clinical Visit Documentation</h1><div class="desc">{{ fmtDate(new Date()) }} · Routine Monitoring</div></div>
       <div class="page-actions">
+        <NuxtLink :to="`/nurse/vitals?patient=${patient.patient_id}`" class="btn btn-secondary"><Icon name="activity" :size="13" /> Full Vitals</NuxtLink>
         <select class="input" :value="patient.patient_id" @change="switchPatient(($event.target as HTMLSelectElement).value)">
           <option v-for="p in patients" :key="p.patient_id" :value="p.patient_id">{{ p.full_name }}</option>
         </select>
@@ -106,6 +107,16 @@
       </div>
     </div>
   </div>
+  <div v-else>
+    <div class="page-header"><div><h1>Clinical Visit Documentation</h1><div class="desc">Triage, nursing assessment, medication administration, and post-visit instructions.</div></div></div>
+    <div class="card card-pad">
+      <EmptyState
+        :icon="visitLoadError ? 'alert' : 'user'"
+        :title="visitLoadError ? 'Visit documentation could not be loaded' : 'No accessible patient selected'"
+        :description="visitLoadError || 'Register the patient and place them under active clinical care before documenting a nursing visit.'"
+      />
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -132,6 +143,7 @@ const rxSig = ref('')
 const saving = ref(false)
 const visitId = ref<string | null>(null)
 const activeCycleId = ref<string | null>(null)
+const visitLoadError = ref('')
 
 const vitals = reactive({ bpSystolic: '', bpDiastolic: '', temperature: '', pulse: '', spo2: '', height: '', weight: '' })
 const condition = ref('Stable')
@@ -156,11 +168,18 @@ function resetForm() {
 
 async function loadPatient(patientId: string) {
   const [bioRes, rxRes, cycleRes] = await Promise.all([
-    supabase.from('bio_details').select('*, patient_names(full_name)').eq('patient_id', patientId).single(),
+    supabase.from('bio_details').select('*').eq('patient_id', patientId).maybeSingle(),
     supabase.from('prescriptions').select('*').eq('patient_id', patientId).neq('status', 'Cancelled').order('date', { ascending: false }),
     supabase.from('cycles').select('id').eq('patient_id', patientId).neq('status', 'Closed').order('start_date', { ascending: false }).limit(1).maybeSingle(),
   ])
-  patient.value = bioRes.data ? { ...bioRes.data, full_name: bioRes.data.patient_names?.full_name } : null
+  if (bioRes.error) {
+    visitLoadError.value = 'Patient registration details could not be loaded. Check your connection and access, then try again.'
+    patient.value = null
+    return
+  }
+  const selected = patients.value.find((entry) => entry.patient_id === patientId)
+  patient.value = bioRes.data ? { ...bioRes.data, full_name: selected?.full_name || 'Patient' } : null
+  visitLoadError.value = patient.value ? '' : 'This patient does not have a registration detail record yet.'
   existingRx.value = rxRes.data || []
   activeCycleId.value = cycleRes.data?.id || null
   spouseName.value = ''
@@ -170,18 +189,23 @@ async function loadPatient(patientId: string) {
   }
 }
 
-await useAsyncData('nurse-visit-init', async () => {
-  const { data } = await supabase.from('patient_names').select('patient_id, full_name').order('full_name', { ascending: true })
+await useAsyncData(`nurse-visit-init-${profile.value?.id || 'anonymous'}`, async () => {
+  const { data, error } = await supabase.from('patient_names').select('patient_id, full_name').order('full_name', { ascending: true })
+  if (error) {
+    visitLoadError.value = 'The patient list is temporarily unavailable. Your access has not been changed.'
+    return false
+  }
   patients.value = data || []
-  const startId = (route.query.patient as string) || patients.value[0]?.patient_id
+  const requested = typeof route.query.patient === 'string' ? route.query.patient : ''
+  const startId = patients.value.some((entry) => entry.patient_id === requested) ? requested : patients.value[0]?.patient_id
   if (startId) await loadPatient(startId)
   return true
-})
+}, { getCachedData: (key, nuxtApp) => nuxtApp.isHydrating ? nuxtApp.payload.data[key] : undefined })
 
 function switchPatient(patientId: string) {
   resetForm()
-  router.replace({ query: { ...route.query, patient: patientId } })
-  loadPatient(patientId)
+  void router.replace({ query: { ...route.query, patient: patientId } })
+  void loadPatient(patientId)
 }
 
 // Saved incrementally (upserted on every "Save & Proceed", not only at the
@@ -209,12 +233,11 @@ async function persistVisit() {
     post_visit_instructions: postVisitInstructions.value,
   }
   if (visitId.value) {
-    const { error } = await supabase.from('nurse_visits').update(payload).eq('id', visitId.value)
-    if (error) throw error
+    await queueOrRun('Nursing visit progress saved', { table: 'nurse_visits', kind: 'update', payload, match: { id: visitId.value } })
   } else {
-    const { data, error } = await supabase.from('nurse_visits').insert(payload).select('id').single()
-    if (error) throw error
-    visitId.value = data.id
+    const newVisitId = crypto.randomUUID()
+    await queueOrRun('Nursing visit started', { table: 'nurse_visits', kind: 'insert', payload: { id: newVisitId, ...payload } })
+    visitId.value = newVisitId
   }
 }
 

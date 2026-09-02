@@ -73,7 +73,7 @@ async function addDay() {
 
 async function save(row: any) {
   const payload = {
-    phase: row.phase || null,
+    phase: String(row.phase || '').trim(),
     medication: row.medication || null,
     milestone: row.milestone || null,
     medication_administered: Boolean(row.medication_administered),

@@ -1,24 +1,60 @@
 <template>
-  <Modal :model-value="modelValue" :title="patient?.full_name || ''" wide @update:model-value="$emit('update:modelValue', $event)">
-    <template v-if="patient">
+  <Modal :model-value="modelValue" :title="patientRecord?.full_name || ''" wide @update:model-value="$emit('update:modelValue', $event)">
+    <template v-if="patientRecord">
       <div class="grid grid-4" style="gap:10px; margin-bottom:14px;">
-        <div><div class="muted" style="font-size:10.5px;">ID</div><div style="font-weight:600; font-size:12.5px;">{{ patient.patient_id }}</div></div>
-        <div><div class="muted" style="font-size:10.5px;">AGE</div><div style="font-weight:600; font-size:12.5px;">{{ computeAge(patient.dob) }}</div></div>
-        <div><div class="muted" style="font-size:10.5px;">BLOOD GROUP</div><div style="font-weight:600; font-size:12.5px;">{{ patient.blood_group || '—' }}</div></div>
-        <div><div class="muted" style="font-size:10.5px;">STATUS</div><StatusBadge :status="patient.status" /></div>
+        <div><div class="muted" style="font-size:10.5px;">ID</div><div style="font-weight:600; font-size:12.5px;">{{ patientRecord.patient_id }}</div></div>
+        <div><div class="muted" style="font-size:10.5px;">AGE</div><div style="font-weight:600; font-size:12.5px;">{{ computeAge(patientRecord.dob) }}</div></div>
+        <div><div class="muted" style="font-size:10.5px;">BLOOD GROUP</div><div style="font-weight:600; font-size:12.5px;">{{ patientRecord.blood_group || '—' }}</div></div>
+        <div><div class="muted" style="font-size:10.5px;">STATUS</div><StatusBadge :status="patientRecord.status" /></div>
+      </div>
+      <div class="registration-strip">
+        <div><span>Sex</span><b>{{ patientRecord.sex || '—' }}</b></div>
+        <div><span>Date of birth</span><b>{{ patientRecord.dob ? fmtDate(patientRecord.dob) : '—' }}</b></div>
+        <div><span>Registered</span><b>{{ patientRecord.registered_on ? fmtDate(patientRecord.registered_on) : '—' }}</b></div>
+        <div><span>Referral source</span><b>{{ patientRecord.referral_source || '—' }}</b></div>
+        <div><span>Assigned doctor</span><b>{{ assignedDoctorName || 'Unassigned' }}</b></div>
+        <div><span>Consent</span><b>{{ patientRecord.registration_consent_at || patientRecord.consent_form_url ? 'On file' : 'Not recorded' }}</b></div>
       </div>
       <hr class="hr" />
       <b style="font-size:12.5px;">Contact</b>
-      <p style="font-size:12.5px; margin-top:6px; color:var(--text-700);"><Icon name="phone" :size="11" /> {{ patient.phone || '—' }} &nbsp; <Icon name="mail" :size="11" /> {{ patient.email || '—' }}</p>
-      <p style="font-size:12.5px; color:var(--text-700);">{{ patient.address || '—' }}</p>
-      <p style="font-size:12.5px; color:var(--text-700); margin-top:4px;">Emergency: {{ patient.emergency_contact?.name || '—' }} ({{ patient.emergency_contact?.relationship || '—' }}) · {{ patient.emergency_contact?.phone || '—' }}</p>
+      <p style="font-size:12.5px; margin-top:6px; color:var(--text-700);"><Icon name="phone" :size="11" /> {{ patientRecord.phone || '—' }} &nbsp; <Icon name="mail" :size="11" /> {{ patientRecord.email || '—' }}</p>
+      <p style="font-size:12.5px; color:var(--text-700);">{{ patientRecord.address || '—' }}</p>
+      <p style="font-size:12.5px; color:var(--text-700); margin-top:4px;">Emergency: {{ patientRecord.emergency_contact?.name || '—' }} ({{ patientRecord.emergency_contact?.relationship || '—' }}) · {{ patientRecord.emergency_contact?.phone || '—' }}</p>
       <hr class="hr" />
       <b style="font-size:12.5px;"><Icon name="clipboard" :size="12" /> Medical History</b>
       <div class="grid grid-3" style="margin-top:8px; gap:10px;">
-        <div><div class="muted" style="font-size:10.5px;">ALLERGIES</div><div style="font-weight:600; font-size:12.5px;" :style="{ color: patient.allergies?.length ? 'var(--red-600)' : 'var(--text-900)' }">{{ patient.allergies?.join(', ') || 'None documented' }}</div></div>
-        <div><div class="muted" style="font-size:10.5px;">CHRONIC CONDITIONS</div><div style="font-weight:600; font-size:12.5px;">{{ patient.chronic_conditions?.join(', ') || 'None documented' }}</div></div>
-        <div><div class="muted" style="font-size:10.5px;">OBSTETRIC HISTORY</div><div style="font-weight:600; font-size:12.5px;">{{ patient.obstetric_history || '—' }}</div></div>
+        <div><div class="muted" style="font-size:10.5px;">ALLERGIES</div><div style="font-weight:600; font-size:12.5px;" :style="{ color: patientRecord.allergies?.length ? 'var(--red-600)' : 'var(--text-900)' }">{{ patientRecord.allergies?.join(', ') || 'None documented' }}</div></div>
+        <div><div class="muted" style="font-size:10.5px;">CHRONIC CONDITIONS</div><div style="font-weight:600; font-size:12.5px;">{{ patientRecord.chronic_conditions?.join(', ') || 'None documented' }}</div></div>
+        <div><div class="muted" style="font-size:10.5px;">OBSTETRIC HISTORY</div><div style="font-weight:600; font-size:12.5px;">{{ patientRecord.obstetric_history || '—' }}</div></div>
       </div>
+      <div v-if="patientRecord.past_surgeries?.length" style="margin-top:8px;"><div class="muted" style="font-size:10.5px;">PAST SURGERIES</div><div style="font-size:12px;">{{ formatPastSurgeries(patientRecord.past_surgeries) }}</div></div>
+      <hr class="hr" />
+      <div class="flex-between"><b style="font-size:12.5px;"><Icon name="activity" :size="12" /> Nursing Vitals &amp; Intake</b><Badge v-if="latestNurseVisit" tone="blue">Latest {{ fmtDate(latestNurseVisit.visit_date) }}</Badge></div>
+      <div v-if="latestNurseVisit" style="margin-top:9px;">
+        <div class="vitals-grid">
+          <div><span>Blood pressure</span><b>{{ bloodPressure(latestNurseVisit) }}</b></div><div><span>Pulse</span><b>{{ withUnit(latestNurseVisit.pulse_bpm, 'bpm') }}</b></div><div><span>Respiratory rate</span><b>{{ withUnit(latestNurseVisit.respiratory_rate_bpm, '/min') }}</b></div>
+          <div><span>Temperature</span><b>{{ withUnit(latestNurseVisit.temperature_c, '°C') }}</b></div><div><span>SpO₂</span><b>{{ withUnit(latestNurseVisit.spo2_pct, '%') }}</b></div><div><span>Weight</span><b>{{ withUnit(latestNurseVisit.weight_kg, 'kg') }}</b></div>
+          <div><span>Height</span><b>{{ withUnit(latestNurseVisit.height_cm, 'cm') }}</b></div><div><span>BMI</span><b>{{ visitBmi(latestNurseVisit) }}</b></div><div><span>Pain</span><b>{{ latestNurseVisit.pain_score != null ? `${latestNurseVisit.pain_score}/10` : '—' }}</b></div>
+        </div>
+        <p v-if="latestNurseVisit.chief_complaint" class="clinical-copy"><b>Reason for visit:</b> {{ latestNurseVisit.chief_complaint }}</p>
+        <div v-if="latestNurseVisit.reproductive_intake && Object.keys(latestNurseVisit.reproductive_intake).length" class="intake-box">
+          <b>Fertility context</b><p>{{ reproductiveSummary(latestNurseVisit.reproductive_intake) }}</p>
+        </div>
+        <div v-if="latestNurseVisit.medical_intake && Object.keys(latestNurseVisit.medical_intake).length" class="intake-box"><b>Reported medical intake</b><p>{{ medicalSummary(latestNurseVisit.medical_intake) }}</p></div>
+        <p v-if="latestNurseVisit.nursing_notes" class="clinical-copy"><b>Nursing notes:</b> {{ latestNurseVisit.nursing_notes }}</p>
+        <p v-if="latestNurseVisit.post_visit_instructions" class="clinical-copy"><b>Post-visit instructions:</b> {{ latestNurseVisit.post_visit_instructions }}</p>
+        <p class="cell-muted" style="margin-top:5px;">Recorded by {{ nurseName(latestNurseVisit.documented_by) }} · {{ latestNurseVisit.visit_type || 'Clinical visit' }}</p>
+        <details v-for="visit in nurseVisits" :key="visit.id" class="visit-history-item">
+          <summary><span>{{ fmtDate(visit.visit_date) }} · {{ visit.visit_type || 'Nursing visit' }}</span><StatusBadge :status="visit.condition || 'Recorded'" /></summary>
+          <p>{{ compactVitalSummary(visit) }}</p>
+          <p v-if="visit.chief_complaint"><b>Reason:</b> {{ visit.chief_complaint }}</p>
+          <p v-if="visit.nursing_notes"><b>Notes:</b> {{ visit.nursing_notes }}</p>
+          <p v-if="visit.post_visit_instructions"><b>Instructions:</b> {{ visit.post_visit_instructions }}</p>
+          <p v-if="visit.reproductive_intake && Object.keys(visit.reproductive_intake).length"><b>Fertility:</b> {{ reproductiveSummary(visit.reproductive_intake) }}</p>
+          <p v-if="visit.medical_intake && Object.keys(visit.medical_intake).length"><b>Medical intake:</b> {{ medicalSummary(visit.medical_intake) }}</p>
+        </details>
+      </div>
+      <p v-else class="muted" style="font-size:12px; margin-top:7px;">No nursing observations recorded yet.</p>
       <hr class="hr" />
       <b style="font-size:12.5px;"><Icon name="layers" :size="12" /> Treatment Cycle</b>
       <p style="font-size:12.5px; margin-top:6px; color:var(--text-700);">
@@ -50,13 +86,13 @@
           <StatusBadge :status="s.status" />
         </div>
       </div>
-      <template v-if="patient.spouse">
+      <template v-if="patientRecord.spouse">
         <hr class="hr" />
         <b style="font-size:12.5px;"><Icon name="user" :size="12" /> Spouse / Partner</b>
         <div class="grid grid-3" style="margin-top:8px; gap:10px;">
-          <div><div class="muted" style="font-size:10.5px;">NAME</div><div style="font-weight:600; font-size:12.5px;">{{ patient.spouse.name || '—' }}</div></div>
-          <div><div class="muted" style="font-size:10.5px;">BLOOD GROUP</div><div style="font-weight:600; font-size:12.5px;">{{ patient.spouse.bloodGroup || '—' }}</div></div>
-          <div><div class="muted" style="font-size:10.5px;">SFA RESULT</div><div style="font-weight:600; font-size:12.5px;">{{ patient.spouse.sfa || 'Not on file' }}</div></div>
+          <div><div class="muted" style="font-size:10.5px;">NAME</div><div style="font-weight:600; font-size:12.5px;">{{ patientRecord.spouse.name || '—' }}</div></div>
+          <div><div class="muted" style="font-size:10.5px;">BLOOD GROUP</div><div style="font-weight:600; font-size:12.5px;">{{ patientRecord.spouse.bloodGroup || '—' }}</div></div>
+          <div><div class="muted" style="font-size:10.5px;">SFA RESULT</div><div style="font-weight:600; font-size:12.5px;">{{ patientRecord.spouse.sfa || 'Not on file' }}</div></div>
         </div>
       </template>
       <hr class="hr" />
@@ -177,6 +213,15 @@ function flaggedCount(result: any) {
 // needs the plain cycle_manager_id scalar (part of any `select('*')`).
 const supabase = useSupabaseClient()
 const profile = useProfile()
+const patientBio = ref<any>(null)
+const patientRecord = computed(() => props.patient ? { ...props.patient, ...(patientBio.value || {}) } : null)
+const nurseVisits = ref<any[]>([])
+const staffNames = ref<Map<string, string>>(new Map())
+const assignedDoctorName = computed(() => {
+  const id = patientRecord.value?.assigned_doctor_id
+  return id ? staffNames.value.get(id) || '' : ''
+})
+const latestNurseVisit = computed(() => nurseVisits.value[0] || null)
 const canReadImaging = computed(() => [
   'admin_manager', 'doctor', 'matron', 'nurse', 'chief_embryologist', 'lab_tech',
 ].includes(profile.value?.role || ''))
@@ -207,6 +252,9 @@ watch(
   () => props.patient?.patient_id,
   async (patientId) => {
     if (!patientId) {
+      patientBio.value = null
+      nurseVisits.value = []
+      staffNames.value = new Map()
       surgeries.value = []
       transferCryoEvents.value = []
       cryoStoredCount.value = 0
@@ -223,11 +271,19 @@ watch(
           return [] as ImagingStudy[]
         })
       : Promise.resolve([] as ImagingStudy[])
-    const [surgeryRes, transferRes, cryoRes, imagingRes] = await Promise.all([
+    const [bioRes, nurseVisitRes, surgeryRes, transferRes, cryoRes, imagingRes] = await Promise.all([
+      supabase.from('bio_details').select('*').eq('patient_id', patientId).maybeSingle(),
+      supabase.from('nurse_visits').select('*').eq('patient_id', patientId).order('created_at', { ascending: false }).limit(8),
       supabase.from('surgery_schedule').select('*').eq('patient_id', patientId).order('date', { ascending: false }),
       supabase.from('transfer_cryo_schedule').select('*').eq('patient_id', patientId).order('scheduled_date', { ascending: false }),
       supabase.from('cryo_records').select('straws').eq('patient_id', patientId).eq('asset_type', 'Embryo').eq('status', 'Stored'),
       imagingPromise,
+    ])
+    patientBio.value = bioRes.data || null
+    nurseVisits.value = nurseVisitRes.data || []
+    staffNames.value = await resolveCycleManagerNames(supabase, [
+      patientBio.value?.assigned_doctor_id,
+      ...nurseVisits.value.map((visit) => visit.documented_by),
     ])
     surgeries.value = surgeryRes.data || []
     transferCryoEvents.value = transferRes.data || []
@@ -273,10 +329,75 @@ function formatImagingFinding(value: string | number | boolean | null | undefine
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
   return value == null || value === '' ? '—' : String(value)
 }
+
+function withUnit(value: unknown, unit: string) {
+  return value === null || value === undefined || value === '' ? '—' : `${value} ${unit}`
+}
+
+function bloodPressure(visit: any) {
+  return visit.bp_systolic != null && visit.bp_diastolic != null ? `${visit.bp_systolic}/${visit.bp_diastolic} mmHg` : '—'
+}
+
+function visitBmi(visit: any) {
+  const height = Number(visit.height_cm)
+  const weight = Number(visit.weight_kg)
+  return height && weight ? (weight / (height / 100) ** 2).toFixed(1) : '—'
+}
+
+function nurseName(id: string | null | undefined) {
+  return id ? staffNames.value.get(id) || 'Nursing staff' : 'Nursing staff'
+}
+
+function compactVitalSummary(visit: any) {
+  return [bloodPressure(visit), withUnit(visit.pulse_bpm, 'bpm'), withUnit(visit.respiratory_rate_bpm, '/min'), withUnit(visit.temperature_c, '°C'), withUnit(visit.spo2_pct, '%'), withUnit(visit.weight_kg, 'kg')].filter((value) => value !== '—').join(' · ') || 'No numeric observations recorded.'
+}
+
+function reproductiveSummary(intake: Record<string, any>) {
+  const parts = [
+    intake.trying_to_conceive_months != null ? `Trying ${intake.trying_to_conceive_months} months` : '',
+    intake.prior_fertility_treatment && intake.prior_fertility_treatment !== 'Not asked' ? `Prior treatment: ${intake.prior_fertility_treatment}` : '',
+    intake.lmp_date ? `LMP ${fmtDate(intake.lmp_date)}` : '',
+    intake.cycle_day != null ? `Cycle day ${intake.cycle_day}` : '',
+    intake.pregnancy_status && intake.pregnancy_status !== 'Not applicable' ? `Pregnancy: ${intake.pregnancy_status}` : '',
+    intake.gravida != null ? `Pregnancies ${intake.gravida}` : '',
+    intake.parity != null ? `Live births ${intake.parity}` : '',
+    intake.androgen_use && !['Not asked', 'Not applicable'].includes(intake.androgen_use) ? `Androgen use: ${intake.androgen_use}` : '',
+    intake.male_fertility_history || '',
+    intake.notes || '',
+  ].filter(Boolean)
+  return parts.join(' · ') || 'No additional reproductive details recorded.'
+}
+
+function medicalSummary(intake: Record<string, any>) {
+  const parts = [
+    intake.allergies_reported ? `Allergies: ${intake.allergies_reported}` : '',
+    intake.chronic_conditions_reported ? `Conditions: ${intake.chronic_conditions_reported}` : '',
+    intake.current_medications ? `Medicines: ${intake.current_medications}` : '',
+    intake.smoking_status && intake.smoking_status !== 'Not asked' ? `Smoking: ${intake.smoking_status}` : '',
+    intake.alcohol_use && intake.alcohol_use !== 'Not asked' ? `Alcohol: ${intake.alcohol_use}` : '',
+  ].filter(Boolean)
+  return parts.join(' · ') || 'No additional medical intake recorded.'
+}
+
+function formatPastSurgeries(items: any[]) {
+  return items.map((item) => typeof item === 'string' ? item : item?.procedure || item?.name || JSON.stringify(item)).join(' · ')
+}
 </script>
 
 <style scoped>
 .imaging-block { margin-top:10px; }
 .imaging-block > b { font-size:11.5px; }
 .imaging-block > p { margin-top:4px; white-space:pre-wrap; font-size:12px; color:var(--text-700); }
+.registration-strip { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; padding:10px 12px; border-radius:var(--radius-sm); background:var(--bg); }
+.registration-strip div, .vitals-grid div { display:flex; flex-direction:column; gap:3px; }
+.registration-strip span, .vitals-grid span { color:var(--text-500); font-size:9.5px; text-transform:uppercase; }
+.registration-strip b, .vitals-grid b { font-size:11.5px; }
+.vitals-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.vitals-grid div { padding:8px 9px; border:1px solid var(--border); border-radius:7px; }
+.intake-box { margin-top:8px; padding:9px 10px; border-radius:7px; background:var(--blue-50); }
+.intake-box b, .clinical-copy b { font-size:11px; }.intake-box p, .clinical-copy { margin-top:4px; color:var(--text-700); font-size:11.5px; line-height:1.45; white-space:pre-wrap; }
+.visit-history-item { margin-top:8px; padding:8px 10px; border:1px solid var(--border); border-radius:7px; }
+.visit-history-item summary { display:flex; align-items:center; justify-content:space-between; gap:8px; cursor:pointer; color:var(--text-700); font-size:11.5px; font-weight:650; }
+.visit-history-item p { margin-top:6px; color:var(--text-700); font-size:11.5px; line-height:1.45; white-space:pre-wrap; }
+@media (max-width:700px) { .registration-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }.vitals-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 </style>

@@ -3,7 +3,7 @@ export interface BlankCycleDay {
   cycle_id: string
   day: number
   date: string
-  phase: string | null
+  phase: string
   medication: string | null
   milestone: string | null
   medication_administered: boolean
@@ -28,7 +28,10 @@ export function createBlankCycleDays(cycleId: string, startDate: string, count =
     cycle_id: cycleId,
     day: index + 1,
     date: addDays(startDate, index),
-    phase: null,
+    // The production schema requires phase to be non-null. An empty string
+    // represents an intentionally blank clinician-authored day, while still
+    // avoiding any generated treatment recommendation.
+    phase: '',
     medication: null,
     milestone: null,
     medication_administered: false,
