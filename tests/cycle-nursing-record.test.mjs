@@ -59,3 +59,14 @@ test('front desk patient popup can read the complete registration profile', asyn
   assert.match(migration, /patient_front_desk_profile_v2/)
   assert.match(migration, /record_registration_consent/)
 })
+
+test('live alignment contains every column and RPC required by the new nursing UI', async () => {
+  const repair = await read('supabase/migrations/20260902080000_live_schema_alignment.sql')
+
+  for (const column of ['respiratory_rate_bpm', 'pain_score', 'waist_cm', 'blood_glucose_mmol_l', 'visit_type', 'chief_complaint', 'reproductive_intake', 'medical_intake', 'registration_consent_at']) {
+    assert.match(repair, new RegExp(`add column if not exists ${column}`))
+  }
+  assert.match(repair, /patient_front_desk_profile_v2/)
+  assert.match(repair, /record_registration_consent/)
+  assert.match(repair, /alignment_verification/)
+})

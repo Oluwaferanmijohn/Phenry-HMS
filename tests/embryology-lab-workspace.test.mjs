@@ -53,3 +53,14 @@ test('lab staff can document equipment, supplies, and kits outside pharmacy', as
   assert.match(roleMeta, /id: 'qc', label: 'Equipment, QC & Supplies'/)
   assert.match(labPage, /LabOperationsPage role="lab_tech"/)
 })
+
+test('live schema alignment activates embryo RLS and preserves role-scoped access', async () => {
+  const repair = await read('supabase/migrations/20260902080000_live_schema_alignment.sql')
+
+  assert.match(repair, /embryo_batches enable row level security/)
+  assert.match(repair, /revoke all privileges on table public\.embryo_batches from anon/)
+  assert.match(repair, /doctor_has_patient_access\(patient_id\)/)
+  assert.match(repair, /nurse_has_patient_access\(patient_id\)/)
+  assert.match(repair, /mrn_sequences enable row level security/)
+  assert.match(repair, /drop trigger if exists cycles_enforce_cycle_manager/)
+})

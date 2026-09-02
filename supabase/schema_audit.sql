@@ -175,15 +175,17 @@ enums as (
 domains as (
   select coalesce(jsonb_agg(
     jsonb_build_object(
-      'schema', domain_schema,
-      'name', domain_name,
-      'data_type', data_type,
-      'nullable', is_nullable,
-      'default', domain_default
-    ) order by domain_schema, domain_name
+      'schema', n.nspname,
+      'name', t.typname,
+      'data_type', format_type(t.typbasetype, t.typtypmod),
+      'nullable', case when t.typnotnull then false else true end,
+      'default', t.typdefault
+    )
   ), '[]'::jsonb) as items
-  from information_schema.domains
-  where domain_schema = 'public'
+  from pg_type t
+  join pg_namespace n on n.oid = t.typnamespace
+  where n.nspname = 'public'
+    and t.typtype = 'd'
 ),
 sequences as (
   select coalesce(jsonb_agg(
@@ -250,8 +252,13 @@ publications as (
   where schemaname = 'public'
 ),
 migration_history as (
-  select coalesce(jsonb_agg(to_jsonb(m) order by (to_jsonb(m) ->> 'version')), '[]'::jsonb) as items
-  from supabase_migrations.schema_migrations m
+  -- Dashboard-created projects may not have CLI migration tracking yet. Avoid
+  -- referencing the optional relation directly because PostgreSQL resolves it
+  -- before CASE conditions can protect the query.
+  select jsonb_build_object(
+    'tracking_table_exists', to_regclass('supabase_migrations.schema_migrations') is not null,
+    'items', '[]'::jsonb
+  ) as item
 )
 select jsonb_pretty(jsonb_build_object(
   'audit_version', 1,
@@ -273,5 +280,5 @@ select jsonb_pretty(jsonb_build_object(
   'routine_grants', (select items from routine_grants),
   'storage_buckets', (select items from storage_buckets),
   'realtime_publications', (select items from publications),
-  'migration_history', (select items from migration_history)
+  'migration_history', (select item from migration_history)
 )) as schema_snapshot;
