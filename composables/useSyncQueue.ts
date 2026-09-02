@@ -112,7 +112,11 @@ export function useSyncQueue() {
     opsOrRun: WriteOp | WriteOp[] | (() => Promise<void> | void),
     onSuccess?: () => void,
   ) {
-    const userId = user.value?.id
+    // Keep accepting durable offline writes if Supabase's reactive user is
+    // temporarily null during a failed token refresh. `hydratedFor` is the
+    // already-confirmed owner of this encrypted queue and is never borrowed
+    // while online.
+    const userId = user.value?.id || (!state.online ? state.hydratedFor || undefined : undefined)
     if (!userId) throw new Error('You must be signed in to save changes')
     if (state.hydratedFor !== userId) await hydrate(userId)
 

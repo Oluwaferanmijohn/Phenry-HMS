@@ -39,8 +39,8 @@ export function computeAge(dob: string | null | undefined) {
 
 const STATUS_TONE: Record<string, string> = {
   Paid: 'green', 'Approved & Dispensed': 'green', Completed: 'green', Active: 'green', Pass: 'green', Positive: 'green', Free: 'green', Dispensed: 'green',
-  Pending: 'amber', 'Pending Verification': 'amber', 'Pending Approval': 'amber', Upcoming: 'gray', Scheduled: 'blue', Waiting: 'amber', 'In Progress': 'blue', 'In Room': 'blue',
-  Urgent: 'red', Emergency: 'red', Fail: 'red', Critical: 'red', Negative: 'red', Occupied: 'red', Offboarded: 'gray', Closed: 'gray', 'Not Checked': 'gray',
+  Pending: 'amber', 'Pending Verification': 'amber', 'Pending Approval': 'amber', Ordered: 'amber', Collected: 'blue', Upcoming: 'gray', Scheduled: 'blue', Waiting: 'amber', 'In Progress': 'blue', 'In Room': 'blue',
+  Urgent: 'red', Emergency: 'red', Fail: 'red', Critical: 'red', Expired: 'red', Negative: 'red', Cancelled: 'red', Occupied: 'red', Offboarded: 'gray', Closed: 'gray', 'Not Checked': 'gray',
   Routine: 'blue', 'Low Stock': 'amber', Adequate: 'green', 'Denied / Out of Stock': 'red', Reserved: 'amber',
 }
 export function statusTone(status: string | null | undefined) {

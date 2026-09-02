@@ -1,4 +1,4 @@
-import { forceSignOut, loadProfile, useProfile } from '~/composables/useAuth'
+import { forceSignOut, refreshProfileAccess, useProfile, type ProfileRefreshStatus } from '~/composables/useAuth'
 import { profileHomePath, roleHomePath } from '~/composables/useRoleMeta'
 
 const PUBLIC_ROUTES = new Set(['/login'])
@@ -6,30 +6,48 @@ const PUBLIC_ROUTES = new Set(['/login'])
 export default defineNuxtRouteMiddleware(async (to) => {
   const user = useSupabaseUser()
   const profile = useProfile()
+  const offline = import.meta.client && !navigator.onLine
+  let refreshStatus: ProfileRefreshStatus | null = null
 
   if (!user.value) {
-    if (!PUBLIC_ROUTES.has(to.path)) return navigateTo('/login')
-    return
+    // Supabase's reactive user can temporarily be unavailable while a token
+    // refresh has no network. A last-confirmed active profile is sufficient
+    // for this device's encrypted offline workspace until reconnect.
+    if (!(offline && profile.value?.active)) {
+      if (!PUBLIC_ROUTES.has(to.path)) return navigateTo('/login')
+      return
+    }
   }
 
-  // Don't leave a stranded login screen once authenticated.
-  if (PUBLIC_ROUTES.has(to.path)) {
-    if (!profile.value || profile.value.id !== user.value.id) await loadProfile()
-    return navigateTo(profile.value ? profileHomePath(profile.value) : '/login')
+  if (user.value && (!profile.value || profile.value.id !== user.value.id)) {
+    const refreshed = await refreshProfileAccess()
+    refreshStatus = refreshed.status
   }
 
-  if (!profile.value || profile.value.id !== user.value.id) {
-    await loadProfile()
+  if (refreshStatus === 'revoked' || refreshStatus === 'missing') {
+    return forceSignOut('revoked')
   }
 
   // Revoked staff accounts must actually be blocked, not just show a
-  // grayed-out row in Admin's Staff table.
+  // grayed-out row in Admin's Staff table. This branch only runs on a profile
+  // whose inactive state was positively confirmed, never on a fetch error.
   if (profile.value && profile.value.active === false) {
     return forceSignOut('revoked')
   }
 
   const current = profile.value
-  if (!current) return navigateTo('/no-access')
+  if (!current) {
+    if (refreshStatus === 'unavailable') {
+      if (to.path !== '/no-access') return navigateTo('/no-access?offline=1')
+      return
+    }
+    if (to.path !== '/no-access') return navigateTo('/no-access')
+    return
+  }
+
+  // Don't leave a stranded login screen once authenticated or operating from
+  // a last-confirmed profile during an outage.
+  if (PUBLIC_ROUTES.has(to.path)) return navigateTo(profileHomePath(current))
 
   // Forced password reset gate (Bible §6.2 / spec §3.1) — applies to every
   // role, not just Patient. Staff created via create-staff.post.ts get the

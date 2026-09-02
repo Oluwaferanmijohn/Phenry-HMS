@@ -1,4 +1,4 @@
-import { forceSignOut, loadProfile, useProfile } from '~/composables/useAuth'
+import { forceSignOut, refreshProfileAccess, useProfile } from '~/composables/useAuth'
 import { profileHomePath } from '~/composables/useRoleMeta'
 
 export default defineNuxtPlugin(() => {
@@ -10,14 +10,18 @@ export default defineNuxtPlugin(() => {
   let checking = false
 
   async function validateSession() {
-    if (!user.value || checking) return
+    if (!navigator.onLine || !user.value || checking) return
     checking = true
     try {
-      const current = await loadProfile()
-      if (!current || !current.active) {
+      const result = await refreshProfileAccess()
+      if (result.status === 'revoked' || result.status === 'missing') {
         await forceSignOut('revoked')
         return
       }
+      // `unavailable` means the request failed; it is not evidence of revoked
+      // access. Keep the local session/profile and try again on reconnect.
+      if (result.status !== 'active' || !result.profile) return
+      const current = result.profile
       if (current.force_password_reset && route.path !== '/reset-password') {
         await navigateTo('/reset-password')
       }
@@ -32,6 +36,7 @@ export default defineNuxtPlugin(() => {
       channel = null
     }
     if (!userId) return
+    if (!navigator.onLine) return
     channel = supabase
       .channel(`profile-session:${userId}`)
       .on(
@@ -44,8 +49,10 @@ export default defineNuxtPlugin(() => {
           }
           const previousRole = profile.value?.role
           const previousCustomRole = profile.value?.custom_role_key
-          const current = await loadProfile()
-          if (!current || !current.active) return forceSignOut('revoked')
+          const result = await refreshProfileAccess()
+          if (result.status === 'revoked' || result.status === 'missing') return forceSignOut('revoked')
+          if (result.status !== 'active' || !result.profile) return
+          const current = result.profile
           if (current.force_password_reset) return navigateTo('/reset-password')
           if (current.role !== previousRole || current.custom_role_key !== previousCustomRole) {
             return navigateTo(profileHomePath(current))
@@ -58,11 +65,18 @@ export default defineNuxtPlugin(() => {
   const stop = watch(() => user.value?.id, subscribe, { immediate: true })
   const interval = window.setInterval(validateSession, 60_000)
   window.addEventListener('focus', validateSession)
+  const handleOnline = () => {
+    void subscribe(user.value?.id)
+    void validateSession()
+  }
+  window.addEventListener('online', handleOnline)
+  void validateSession()
 
   const cleanup = () => {
     stop()
     window.clearInterval(interval)
     window.removeEventListener('focus', validateSession)
+    window.removeEventListener('online', handleOnline)
     if (channel) void supabase.removeChannel(channel)
   }
   if (import.meta.hot) import.meta.hot.dispose(cleanup)

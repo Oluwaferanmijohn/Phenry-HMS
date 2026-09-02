@@ -3,9 +3,10 @@
 // Version 2 intentionally destroys the old plaintext stores during upgrade.
 
 const DB_NAME = 'phenry-health-offline'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const STORE_QUEUE = 'write_queue'
 const STORE_PATIENTS = 'recent_patients'
+const STORE_PROFILES = 'profile_cache'
 const STORE_KEYS = 'encryption_keys'
 const MAX_CACHED_PATIENTS = 60
 const MAX_CACHE_AGE_MS = 7 * 24 * 60 * 60 * 1000
@@ -39,6 +40,11 @@ interface CachedPatient<T = unknown> {
   data: T
 }
 
+interface CachedProfile<T = unknown> {
+  cachedAt: number
+  data: T
+}
+
 let dbPromise: Promise<IDBDatabase> | null = null
 
 function openDb(): Promise<IDBDatabase> {
@@ -50,17 +56,28 @@ function openDb(): Promise<IDBDatabase> {
     }
 
     const request = indexedDB.open(DB_NAME, DB_VERSION)
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const db = request.result
-      // v1 held PHI and queue payloads as plaintext. Never migrate it.
-      for (const store of [STORE_QUEUE, STORE_PATIENTS, STORE_KEYS]) {
-        if (db.objectStoreNames.contains(store)) db.deleteObjectStore(store)
+      const oldVersion = (event as IDBVersionChangeEvent).oldVersion
+
+      if (oldVersion < 2) {
+        // v1 held PHI and queue payloads as plaintext. Never migrate it.
+        for (const store of [STORE_QUEUE, STORE_PATIENTS, STORE_PROFILES, STORE_KEYS]) {
+          if (db.objectStoreNames.contains(store)) db.deleteObjectStore(store)
+        }
+        const queue = db.createObjectStore(STORE_QUEUE, { keyPath: 'storageKey' })
+        queue.createIndex('ownerUserId', 'ownerUserId', { unique: false })
+        const patients = db.createObjectStore(STORE_PATIENTS, { keyPath: 'storageKey' })
+        patients.createIndex('ownerUserId', 'ownerUserId', { unique: false })
+        db.createObjectStore(STORE_KEYS, { keyPath: 'userId' })
       }
-      const queue = db.createObjectStore(STORE_QUEUE, { keyPath: 'storageKey' })
-      queue.createIndex('ownerUserId', 'ownerUserId', { unique: false })
-      const patients = db.createObjectStore(STORE_PATIENTS, { keyPath: 'storageKey' })
-      patients.createIndex('ownerUserId', 'ownerUserId', { unique: false })
-      db.createObjectStore(STORE_KEYS, { keyPath: 'userId' })
+
+      // v3 adds an encrypted last-confirmed profile without touching the v2
+      // write queue or patient cache. They must survive an app upgrade.
+      if (!db.objectStoreNames.contains(STORE_PROFILES)) {
+        const profiles = db.createObjectStore(STORE_PROFILES, { keyPath: 'storageKey' })
+        profiles.createIndex('ownerUserId', 'ownerUserId', { unique: false })
+      }
     }
     request.onsuccess = () => {
       request.result.onversionchange = () => request.result.close()
@@ -139,6 +156,10 @@ async function patientStorageKey(userId: string, patientId: string): Promise<str
 
 function queueStorageKey(userId: string, queueId: string) {
   return `queue:${userId}:${queueId}`
+}
+
+function profileStorageKey(userId: string) {
+  return `profile:${userId}`
 }
 
 async function encrypt<T>(userId: string, storageKey: string, purpose: string, value: T): Promise<EncryptedEnvelope> {
@@ -220,15 +241,40 @@ export async function getCachedPatientSnapshot<T>(userId: string, patientId: str
   }
 }
 
+export async function cacheProfileSnapshot<T>(userId: string, data: T): Promise<void> {
+  const storageKey = profileStorageKey(userId)
+  const value: CachedProfile<T> = { cachedAt: Date.now(), data }
+  await putRecord(STORE_PROFILES, await encrypt(userId, storageKey, 'profile', value))
+}
+
+export async function getCachedProfileSnapshot<T>(userId: string): Promise<T | null> {
+  const storageKey = profileStorageKey(userId)
+  const row = await getRecord<EncryptedEnvelope>(STORE_PROFILES, storageKey)
+  if (!row || row.ownerUserId !== userId) return null
+  try {
+    const cached = await decrypt<CachedProfile<T>>(row, userId, 'profile')
+    if (Date.now() - cached.cachedAt > MAX_CACHE_AGE_MS) {
+      await deleteRecord(STORE_PROFILES, storageKey)
+      return null
+    }
+    return cached.data
+  } catch {
+    await deleteRecord(STORE_PROFILES, storageKey)
+    return null
+  }
+}
+
 export async function clearOfflineData(userId: string): Promise<void> {
   try {
-    const [queue, patients] = await Promise.all([
+    const [queue, patients, profiles] = await Promise.all([
       getAllByOwner(STORE_QUEUE, userId),
       getAllByOwner(STORE_PATIENTS, userId),
+      getAllByOwner(STORE_PROFILES, userId),
     ])
     await Promise.all([
       ...queue.map((row) => deleteRecord(STORE_QUEUE, row.storageKey)),
       ...patients.map((row) => deleteRecord(STORE_PATIENTS, row.storageKey)),
+      ...profiles.map((row) => deleteRecord(STORE_PROFILES, row.storageKey)),
     ])
     await deleteRecord(STORE_KEYS, userId)
   } catch {

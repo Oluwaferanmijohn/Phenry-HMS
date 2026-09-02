@@ -168,3 +168,16 @@ test('women imaging workspace keeps templates structural and patient reports rol
   assert.match(access, /rpc\('imaging_patient_history'/)
   assert.match(access, /rpc\('save_imaging_study'/)
 })
+
+test('consultation lab orders open an actionable patient result workflow', async () => {
+  const worklist = await read('components/shared/LabWorklistPage.vue')
+  const results = await read('components/shared/LabResultsEntryPage.vue')
+
+  assert.match(worklist, /Enter Results/)
+  assert.match(worklist, /query:\s*\{ patient: order\.patient_id, order: order\.id \}/)
+  assert.match(worklist, /\.in\('status', \['Ordered', 'Collected'\]\)/)
+  assert.match(results, /Consultation Order/)
+  assert.match(results, /activeOrder\.value\?\.patient_id \|\| requestedPatientId/)
+  assert.match(results, /findMatchingTemplate\(activeOrder\.value\?\.tests \|\| \[\]\)/)
+  assert.match(results, /table: 'lab_test_orders'[\s\S]*status: 'Completed'/)
+})

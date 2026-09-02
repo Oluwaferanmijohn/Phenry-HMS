@@ -1,5 +1,6 @@
 import { cachePatientSnapshot, getCachedPatientSnapshot } from '~/composables/useOfflineDb'
 import { useSyncQueue } from '~/composables/useSyncQueue'
+import { useProfile } from '~/composables/useAuth'
 
 // Wraps a data-loading function so its result is cached to IndexedDB on
 // success, and served from that cache when offline. This is the mechanism
@@ -9,9 +10,10 @@ import { useSyncQueue } from '~/composables/useSyncQueue'
 export function useRecentPatientCache() {
   const { online } = useSyncQueue()
   const user = useSupabaseUser()
+  const profile = useProfile()
 
   async function loadWithCache<T>(patientId: string, fetcher: () => Promise<T>): Promise<{ data: T | null; fromCache: boolean }> {
-    const userId = user.value?.id
+    const userId = user.value?.id || (!online.value ? profile.value?.id : undefined)
     if (!userId) return { data: null, fromCache: false }
     if (online.value) {
       try {

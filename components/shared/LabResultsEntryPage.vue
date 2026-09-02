@@ -15,10 +15,34 @@
       <div><h1>Enter Lab Results</h1><div class="desc">Record assay values for patient monitoring.</div></div>
       <div class="page-actions"><button class="btn btn-secondary" @click="showExternal = true"><Icon name="upload" :size="14" /> Upload External Result for {{ patient.first_name }}</button></div>
     </div>
+    <div v-if="activeOrder" class="card card-pad" style="margin-bottom:16px; border-color:var(--blue-500); background:var(--blue-50);">
+      <div class="flex-between" style="align-items:flex-start; gap:16px;">
+        <div>
+          <div class="flex gap-8" style="flex-wrap:wrap; margin-bottom:6px;">
+            <Badge tone="blue">Consultation Order</Badge>
+            <StatusBadge :status="activeOrder.status" />
+          </div>
+          <b style="font-size:13px;">Requested tests: {{ activeOrder.tests.join(', ') }}</b>
+          <div class="cell-muted" style="margin-top:4px;">Ordered {{ fmtDate(activeOrder.created_at) }} by {{ roleLabel(activeOrder.ordered_by_role) }}. Enter and save a result for each requested test, then complete the order.</div>
+        </div>
+        <div class="flex gap-8" style="flex-shrink:0; flex-wrap:wrap; justify-content:flex-end;">
+          <button class="btn btn-secondary btn-sm" @click="returnToWorklist"><Icon name="chevron-left" :size="12" /> Back to Worklist</button>
+          <button
+            v-if="activeOrder.status !== 'Completed' && activeOrder.status !== 'Cancelled'"
+            class="btn btn-success btn-sm"
+            :disabled="completingOrder"
+            @click="completeOrder"
+          ><Icon name="check-circle" :size="12" /> Complete Order</button>
+        </div>
+      </div>
+    </div>
+    <div v-else-if="orderContextError" class="card card-pad" style="margin-bottom:16px; border-color:var(--amber-500);">
+      <div style="font-size:12.5px;"><b>Order unavailable.</b> {{ orderContextError }} You can still enter a result by selecting the patient and template below.</div>
+    </div>
     <div class="grid grid-main-side">
       <div class="card card-pad">
         <div class="form-row">
-          <div class="field"><label>Target Patient ID</label><select v-model="patientId" class="input" @change="loadPatient(patientId)"><option v-for="p in patients" :key="p.patient_id" :value="p.patient_id">{{ p.full_name }} — {{ p.patient_id }}</option></select></div>
+          <div class="field"><label>Target Patient ID</label><select v-model="patientId" class="input" :disabled="Boolean(activeOrder)" @change="loadPatient(patientId)"><option v-for="p in patients" :key="p.patient_id" :value="p.patient_id">{{ p.full_name }} — {{ p.patient_id }}</option></select></div>
           <div class="field"><label>Select Test Template</label><select v-model="templateId" class="input"><option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</option></select></div>
         </div>
         <hr class="hr" />
@@ -73,11 +97,14 @@ const supabase = useSupabaseClient()
 const profile = useProfile()
 const { queueOrRun } = useSyncQueue()
 const route = useRoute()
+const router = useRouter()
 
 const patients = ref<any[]>([])
 const templates = ref<any[]>([])
 const patient = ref<any>(null)
 const template = ref<any>(null)
+const activeOrder = ref<any>(null)
+const orderContextError = ref('')
 const patientId = ref('')
 const templateId = ref('')
 const collectedOn = ref(new Date().toISOString().slice(0, 10))
@@ -86,6 +113,7 @@ const remarks = ref('')
 const onFile = ref<any[]>([])
 const showExternal = ref(false)
 const submitting = ref(false)
+const completingOrder = ref(false)
 
 async function loadPatient(id: string) {
   const { data } = await supabase.from('patient_names').select('*').eq('patient_id', id).single()
@@ -107,18 +135,83 @@ watch(templateId, (id) => {
   remarks.value = ''
 })
 
-await useAsyncData(`lab-results-init-${props.role}`, async () => {
-  const [patientsRes, templatesRes] = await Promise.all([
+const requestedOrderId = typeof route.query.order === 'string' ? route.query.order : ''
+const requestedPatientId = typeof route.query.patient === 'string' ? route.query.patient : ''
+const labResultsInitKey = `lab-results-init-${profile.value?.id || 'anonymous'}-${props.role}-${requestedOrderId || requestedPatientId || 'manual'}`
+
+await useAsyncData(labResultsInitKey, async () => {
+  const [patientsRes, templatesRes, orderRes] = await Promise.all([
     supabase.from('patient_names').select('patient_id, full_name').order('full_name', { ascending: true }),
     supabase.from('lab_templates').select('*').order('name', { ascending: true }),
+    requestedOrderId
+      ? supabase.from('lab_test_orders').select('id, patient_id, tests, status, created_at, ordered_by_role').eq('id', requestedOrderId).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
   ])
   patients.value = patientsRes.data || []
   templates.value = templatesRes.data || []
-  patientId.value = (route.query.patient as string) || patients.value[0]?.patient_id || ''
-  templateId.value = templates.value[0]?.id || ''
+
+  if (requestedOrderId) {
+    const order = orderRes.data
+    if (orderRes.error || !order) {
+      orderContextError.value = 'The selected order may have been removed or is no longer accessible.'
+    } else if (!patients.value.some((entry) => entry.patient_id === order.patient_id)) {
+      orderContextError.value = 'Its patient is not available to this account.'
+    } else {
+      activeOrder.value = order
+    }
+  }
+
+  const initialPatientId = activeOrder.value?.patient_id || requestedPatientId
+  patientId.value = patients.value.some((entry) => entry.patient_id === initialPatientId)
+    ? initialPatientId
+    : patients.value[0]?.patient_id || ''
+  templateId.value = findMatchingTemplate(activeOrder.value?.tests || [])?.id || templates.value[0]?.id || ''
   if (patientId.value) await loadPatient(patientId.value)
   return true
+}, {
+  getCachedData: (key, nuxtApp) => nuxtApp.isHydrating ? nuxtApp.payload.data[key] : undefined,
 })
+
+function normalizedName(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+function findMatchingTemplate(orderedTests: string[]) {
+  return templates.value.find((candidate) => orderedTests.some((orderedTest) => {
+    const templateName = normalizedName(candidate.name)
+    const orderName = normalizedName(orderedTest)
+    if (templateName.includes(orderName) || orderName.includes(templateName)) return true
+
+    const templateTokens = new Set(templateName.split(' ').filter((token) => token.length > 1 && token !== 'test'))
+    const orderTokens = new Set(orderName.split(' ').filter((token) => token.length > 1 && token !== 'test'))
+    const sharedTokens = [...templateTokens].filter((token) => orderTokens.has(token)).length
+    return sharedTokens >= Math.min(2, templateTokens.size, orderTokens.size)
+  }))
+}
+
+function roleLabel(role: string) {
+  return role.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function returnToWorklist() {
+  router.push(`/${props.role}/worklist`)
+}
+
+async function completeOrder() {
+  if (!activeOrder.value || activeOrder.value.status === 'Completed' || activeOrder.value.status === 'Cancelled') return
+  completingOrder.value = true
+  const targetOrderId = activeOrder.value.id
+  try {
+    await queueOrRun(
+      `Lab order completed for ${patient.value.full_name}`,
+      { table: 'lab_test_orders', kind: 'update', payload: { status: 'Completed' }, match: { id: targetOrderId } },
+      () => { if (activeOrder.value?.id === targetOrderId) activeOrder.value.status = 'Completed' },
+    )
+    await router.push(`/${props.role}/worklist`)
+  } finally {
+    completingOrder.value = false
+  }
+}
 
 function flaggedCount(result: any) {
   return Array.isArray(result.values) ? result.values.filter((v: any) => v.flag).length : 0

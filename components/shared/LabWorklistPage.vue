@@ -17,14 +17,28 @@
           <div class="card-header"><h3><Icon name="flask" :size="15" /> Pending Test Orders</h3><Badge tone="amber">{{ orders.length }}</Badge></div>
           <div class="card-body tight">
             <div v-if="!orders.length" style="padding:18px;"><EmptyState icon="flask" title="Nothing ordered" description="Tests ordered by Doctor or Matron during a consultation will appear here." /></div>
-            <div v-for="o in orders" :key="o.id" class="list-row" style="align-items:flex-start;">
-              <div>
-                <div class="main-txt">{{ o.patient_name }}</div>
-                <div class="sub-txt">{{ o.tests.join(', ') }}</div>
-                <div class="cell-muted">Ordered {{ fmtDate(o.created_at) }} by {{ o.ordered_by_role }}</div>
+            <div
+              v-for="o in orders"
+              :key="o.id"
+              class="list-row clickable"
+              style="align-items:stretch; flex-direction:column; gap:10px;"
+              role="link"
+              tabindex="0"
+              @click="openOrder(o)"
+              @keydown.enter.self="openOrder(o)"
+              @keydown.space.self.prevent="openOrder(o)"
+            >
+              <div class="flex-between" style="align-items:flex-start; gap:10px;">
+                <div>
+                  <div class="main-txt">{{ o.patient_name }}</div>
+                  <div class="sub-txt">{{ o.tests.join(', ') }}</div>
+                  <div class="cell-muted">Ordered {{ fmtDate(o.created_at) }} by {{ roleLabel(o.ordered_by_role) }}</div>
+                </div>
+                <StatusBadge :status="o.status" />
               </div>
-              <div class="flex gap-8">
-                <button class="btn btn-secondary btn-sm" @click="actionOrder(o, 'Collected')">Collected</button>
+              <div class="flex gap-8" style="flex-wrap:wrap;" @click.stop>
+                <button class="btn btn-primary btn-sm" @click="openOrder(o)"><Icon name="flask" :size="12" /> Enter Results</button>
+                <button v-if="o.status === 'Ordered'" class="btn btn-secondary btn-sm" @click="actionOrder(o, 'Collected')">Mark Collected</button>
                 <button class="btn btn-secondary btn-sm" @click="actionOrder(o, 'Cancelled')">Cancel</button>
               </div>
             </div>
@@ -71,6 +85,7 @@ import { fmtDate } from '~/composables/useFormat'
 
 const props = defineProps<{ role: string }>()
 const supabase = useSupabaseClient()
+const router = useRouter()
 
 const items = ref<any[]>([])
 const templates = ref<any[]>([])
@@ -84,7 +99,7 @@ await useAsyncData(`lab-worklist-${props.role}`, async () => {
   const [scheduleRes, templatesRes, ordersRes] = await Promise.all([
     supabase.from('transfer_cryo_schedule').select('*, patient_names(full_name)').in('status', ['Scheduled', 'Postponed']).order('scheduled_date', { ascending: true }),
     supabase.from('lab_templates').select('*').order('name', { ascending: true }),
-    supabase.from('lab_test_orders').select('*, patient_names(full_name)').eq('status', 'Ordered').order('created_at', { ascending: false }),
+    supabase.from('lab_test_orders').select('*, patient_names(full_name)').in('status', ['Ordered', 'Collected']).order('created_at', { ascending: false }),
   ])
   items.value = (scheduleRes.data || []).map((it: any) => ({ ...it, patient_name: it.patient_names?.full_name || 'Unknown' }))
   templates.value = templatesRes.data || []
@@ -95,9 +110,24 @@ await useAsyncData(`lab-worklist-${props.role}`, async () => {
 const todayStr = new Date().toISOString().slice(0, 10)
 const today = computed(() => items.value.filter((it) => it.scheduled_date === todayStr))
 
+function roleLabel(role: string) {
+  return role.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function openOrder(order: any) {
+  router.push({
+    path: `/${props.role}/results`,
+    query: { patient: order.patient_id, order: order.id },
+  })
+}
+
 async function actionOrder(order: any, status: 'Collected' | 'Cancelled') {
   const { error } = await supabase.from('lab_test_orders').update({ status }).eq('id', order.id)
   if (error) return
-  orders.value = orders.value.filter((o) => o.id !== order.id)
+  if (status === 'Cancelled') {
+    orders.value = orders.value.filter((o) => o.id !== order.id)
+    return
+  }
+  order.status = status
 }
 </script>

@@ -11,7 +11,11 @@ export default defineNuxtPlugin(() => {
   const stop = watch(
     () => user.value?.id,
     async (userId, previousUserId) => {
-      if (previousUserId && previousUserId !== userId) await clearUserState(previousUserId)
+      // A temporary null user during an offline token refresh is not a real
+      // sign-out. Explicit and confirmed forced sign-outs already clear their
+      // own data in useAuth; only auto-clear an identity change while online.
+      if (navigator.onLine && previousUserId && previousUserId !== userId) await clearUserState(previousUserId)
+      if (!navigator.onLine && !userId) return
       await hydrate(userId)
     },
     { immediate: true },

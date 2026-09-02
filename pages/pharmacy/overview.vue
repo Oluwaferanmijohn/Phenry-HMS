@@ -34,7 +34,7 @@
       </div>
       <div style="display:flex; flex-direction:column; gap:18px;">
         <div class="card">
-          <div class="card-header"><h3><Icon name="download" :size="15" /> Restock Inventory</h3></div>
+          <div class="card-header"><h3><Icon name="download" :size="15" /> Restock Inventory</h3><NuxtLink to="/pharmacy/inventory?new=1" class="link"><Icon name="plus" :size="11" /> Add New Drug</NuxtLink></div>
           <div class="card-body">
             <div class="field"><label>Select Item</label><select v-model="restockId" class="input"><option v-for="i in inventory" :key="i.id" :value="i.id">{{ i.name }}</option></select></div>
             <div class="field"><label>Quantity Received</label><input v-model.number="restockQty" class="input" type="number" placeholder="0" /></div>
