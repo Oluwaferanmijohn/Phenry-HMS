@@ -38,10 +38,12 @@
 import { ref } from 'vue'
 import { useSyncQueue } from '~/composables/useSyncQueue'
 import { useProfile } from '~/composables/useAuth'
+import { useToast } from '~/composables/useToast'
 
 const supabase = useSupabaseClient()
 const profile = useProfile()
 const { queueOrRun } = useSyncQueue()
+const { toast } = useToast()
 
 // Must match pharmacy_inventory.name exactly (see
 // 00000000000011_pharmacy_role.sql's seed data) — Pharmacy's approve flow
@@ -76,6 +78,9 @@ function fmtWhen(iso: string) {
 }
 
 async function submit() {
+  if (itemRows.value.some((row) => !row.name || !Number.isInteger(row.qty) || row.qty < 1)) {
+    return toast('Every requisition item needs a positive whole-number quantity', 'warn')
+  }
   const requestedBy = profile.value!.id
   const snapshotItems = itemRows.value.map((r) => ({ ...r }))
   const snapshotUrgency = urgency.value

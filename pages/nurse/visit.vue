@@ -236,21 +236,22 @@ async function addPrescription() {
   const sig = rxSig.value || 'As directed'
   const targetPatientId = patient.value.patient_id
   const prescribedBy = profile.value!.id
-  await queueOrRun(`${med} logged for ${patient.value.full_name}`, async () => {
-    const { data, error } = await supabase
-      .from('prescriptions')
-      .insert({
-        patient_id: targetPatientId,
-        prescribed_by_profile_id: prescribedBy,
-        prescribed_by_role: 'nurse',
-        medication: med,
-        sig,
-      })
-      .select()
-      .single()
-    if (error) throw error
-    if (patient.value?.patient_id === targetPatientId) existingRx.value = [data, ...existingRx.value]
-  })
+  const prescription = {
+    id: crypto.randomUUID(),
+    patient_id: targetPatientId,
+    prescribed_by_profile_id: prescribedBy,
+    prescribed_by_role: 'nurse',
+    medication: med,
+    sig,
+    requires_cosign: true,
+    status: 'Pending',
+    date: new Date().toISOString(),
+  }
+  await queueOrRun(
+    `${med} logged for ${patient.value.full_name}`,
+    { table: 'prescriptions', kind: 'insert', payload: prescription },
+    () => { if (patient.value?.patient_id === targetPatientId) existingRx.value = [prescription, ...existingRx.value] },
+  )
   rxMed.value = ''
   rxSig.value = ''
 }
@@ -319,15 +320,26 @@ const uploadingConsent = ref(false)
 const viewingConsent = ref(false)
 
 function onConsentFileChosen(e: Event) {
-  consentFile.value = (e.target as HTMLInputElement).files?.[0] || null
+  const file = (e.target as HTMLInputElement).files?.[0] || null
+  const allowed = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
+  if (file && (!allowed.has(file.type) || file.size > 10 * 1024 * 1024)) {
+    consentFile.value = null
+    ;(e.target as HTMLInputElement).value = ''
+    toast('Choose a PDF, JPEG, PNG, or WebP file no larger than 10 MB', 'warn')
+    return
+  }
+  consentFile.value = file
 }
 
 async function uploadConsent() {
   if (!patient.value || !consentFile.value) return
   uploadingConsent.value = true
   const targetPatientId = patient.value.patient_id
-  const path = `${targetPatientId}/${Date.now()}-${consentFile.value.name}`
-  const { error: upErr } = await supabase.storage.from('consent-forms').upload(path, consentFile.value)
+  const targetFile = consentFile.value
+  const previousPath = patient.value.consent_form_url as string | null
+  const safeName = targetFile.name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-120)
+  const path = `${targetPatientId}/${crypto.randomUUID()}-${safeName}`
+  const { error: upErr } = await supabase.storage.from('consent-forms').upload(path, targetFile, { contentType: targetFile.type, upsert: false })
   if (upErr) {
     toast('Could not upload the consent form', 'warn')
     uploadingConsent.value = false
@@ -336,9 +348,11 @@ async function uploadConsent() {
   const { error } = await supabase.from('bio_details').update({ consent_form_url: path }).eq('patient_id', targetPatientId)
   uploadingConsent.value = false
   if (error) {
-    toast('Uploaded, but could not save the reference — please retry', 'warn')
+    await supabase.storage.from('consent-forms').remove([path])
+    toast('Consent form could not be recorded — please retry', 'warn')
     return
   }
+  if (previousPath && previousPath !== path) await supabase.storage.from('consent-forms').remove([previousPath])
   patient.value.consent_form_url = path
   consentFile.value = null
   toast('Consent form on file', 'success')

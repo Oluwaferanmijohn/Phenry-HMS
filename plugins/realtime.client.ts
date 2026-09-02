@@ -10,7 +10,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js'
 //
 // One Supabase Realtime channel listens for Postgres changes on every
 // clinically/operationally relevant table (see
-// 00000000000015_realtime_sync.sql for the publication + replica identity
+// 00000000000018_reconciliation_security.sql for the publication
 // setup this depends on), and on any change calls Nuxt's refreshNuxtData()
 // with NO key argument. That re-runs every useAsyncData handler currently
 // active on whatever page the user is actually looking at — the exact same
@@ -35,13 +35,13 @@ const REALTIME_TABLES = [
   'cycles', 'cycle_daily_logs', 'cycle_investigations', 'cycle_ultrasounds',
   'consultations', 'appointments',
   'payment_plans', 'payment_milestones',
-  'prescriptions', 'pharmacy_inventory', 'requisitions',
-  'lab_results', 'lab_templates',
+  'prescriptions', 'medication_adherence', 'pharmacy_inventory', 'pharmacy_stock_movements', 'requisitions', 'supplier_requests',
+  'lab_results', 'lab_templates', 'lab_test_orders',
   'recovery_beds', 'surgery_schedule', 'operative_reports', 'duty_roster',
-  'embryo_batches', 'transfer_cryo_schedule', 'cryo_tanks', 'cryo_records',
+  'embryo_batches', 'transfer_cryo_schedule', 'cryo_tanks', 'cryo_records', 'cryo_movements',
   'incubator_logs', 'lab_equipment', 'lab_store',
   'messages_log', 'audit_log', 'clinic_settings',
-  'custom_roles', 'role_permissions',
+  'custom_roles', 'role_permissions', 'nurse_visits', 'nursing_tasks', 'emergency_broadcasts', 'emergency_broadcast_recipients',
 ]
 
 const DEBOUNCE_MS = 300

@@ -25,7 +25,7 @@
                 <div class="sub-txt">{{ med.sig }}</div>
               </div>
               <div class="side">
-                <button class="btn btn-sm" :class="takenToday.has(med.id) ? 'btn-success' : 'btn-secondary'" @click="markTaken(med.id, med.medication)">
+                <button class="btn btn-sm" :class="takenToday.has(med.id) ? 'btn-success' : 'btn-secondary'" :disabled="takenToday.has(med.id)" @click="markTaken(med.id, med.medication)">
                   <Icon v-if="takenToday.has(med.id)" name="check-circle" :size="13" />
                   {{ takenToday.has(med.id) ? 'Taken' : 'Mark as taken' }}
                 </button>
@@ -92,12 +92,11 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 import { fmtDate, fmtNaira, formatTime12 } from '~/composables/useFormat'
-import { useToast } from '~/composables/useToast'
 import { useProfile } from '~/composables/useAuth'
 
 const supabase = useSupabaseClient()
 const profile = useProfile()
-const { toast } = useToast()
+const { queueOrRun } = useSyncQueue()
 const patientId = profile.value!.patient_id!
 
 const firstName = ref('')
@@ -111,7 +110,7 @@ const takenToday = reactive(new Set<string>())
 const { data } = await useAsyncData(`patient-home-${patientId}`, async () => {
   const today = new Date().toISOString().slice(0, 10)
 
-  const [nameRes, bioRes, cycleRes, apptRes, planRes, rxRes] = await Promise.all([
+  const [nameRes, bioRes, cycleRes, apptRes, planRes, rxRes, adherenceRes] = await Promise.all([
     supabase.from('patient_names').select('first_name').eq('patient_id', patientId).single(),
     supabase.from('bio_details').select('assigned_doctor_id, profiles:assigned_doctor_id(full_name)').eq('patient_id', patientId).maybeSingle(),
     // "Current" cycle = most recent one that isn't closed — bio_details/patient_names
@@ -121,7 +120,11 @@ const { data } = await useAsyncData(`patient-home-${patientId}`, async () => {
     supabase.from('appointments').select('*').eq('patient_id', patientId).gte('date', today).order('date', { ascending: true }).order('time', { ascending: true }).limit(1).maybeSingle(),
     supabase.from('payment_plans').select('id, payment_milestones(*)').eq('patient_id', patientId),
     supabase.from('prescriptions').select('*').eq('patient_id', patientId).eq('status', 'Pending').order('date', { ascending: false }).limit(4),
+    supabase.from('medication_adherence').select('prescription_id').eq('patient_id', patientId).eq('taken_on', today),
   ])
+
+  const failed = [nameRes, bioRes, cycleRes, apptRes, planRes, rxRes, adherenceRes].find((result) => result.error)
+  if (failed?.error) throw failed.error
 
   const milestones = (planRes.data || []).flatMap((p: any) => p.payment_milestones || [])
   const nextMilestone = milestones.filter((m: any) => m.status !== 'Paid').sort((a: any, b: any) => a.created_at?.localeCompare(b.created_at))[0] || null
@@ -133,6 +136,7 @@ const { data } = await useAsyncData(`patient-home-${patientId}`, async () => {
     nextAppointment: apptRes.data,
     activeMilestone: nextMilestone,
     todaysMeds: rxRes.data || [],
+    takenToday: (adherenceRes.data || []).map((row: any) => row.prescription_id),
   }
 })
 
@@ -143,6 +147,7 @@ if (data.value) {
   nextAppointment.value = data.value.nextAppointment
   activeMilestone.value = data.value.activeMilestone
   todaysMeds.value = data.value.todaysMeds
+  data.value.takenToday.forEach((id: string) => takenToday.add(id))
 }
 
 const nextAppointmentDayLabel = computed(() => {
@@ -155,12 +160,23 @@ const nextAppointmentDayLabel = computed(() => {
   return fmtDate(nextAppointment.value.date)
 })
 
-// Mark-as-taken is intentionally session-only (matches the prototype's
-// PatientUI.takenToday exactly — it resets on reload there too). There's no
-// medication-adherence table in spec §1; flagged separately as a question
-// about whether this should become persistent.
-function markTaken(id: string, medication: string) {
-  takenToday.add(id)
-  toast(`${medication} logged as taken`, 'success')
+async function markTaken(id: string, medication: string) {
+  if (takenToday.has(id)) return
+  const today = new Date().toISOString().slice(0, 10)
+  await queueOrRun(
+    `${medication} logged as taken`,
+    {
+      table: 'medication_adherence',
+      kind: 'insert',
+      payload: {
+        id: crypto.randomUUID(),
+        prescription_id: id,
+        patient_id: patientId,
+        taken_on: today,
+        recorded_by: profile.value!.id,
+      },
+    },
+    () => takenToday.add(id),
+  )
 }
 </script>

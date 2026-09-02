@@ -70,65 +70,28 @@ async function load() {
 await useAsyncData('pharmacy-dispensations', load)
 
 async function dispense(r: any) {
-  // Resolved up front (synchronous, over data already loaded) so the queued
-  // write is plain data — the inventory match itself can't be redone later
-  // from a stale snapshot.
   const inv = matchInventoryItem(inventory.value, r.medication)
-  const newQty = inv ? Math.max(0, inv.current_qty - 1) : null
+  if (!inv) return toast(`No inventory item matches "${r.medication}"; dispensing was not recorded`, 'warn')
   await queueOrRun(
     `${r.medication} dispensed to ${r.patient_name}`,
-    [
-      { table: 'prescriptions', kind: 'update', payload: { status: 'Dispensed' }, match: { id: r.id } },
-      ...(inv ? [{ table: 'pharmacy_inventory', kind: 'update' as const, payload: { current_qty: newQty }, match: { id: inv.id } }] : []),
-    ],
-    () => {
-      if (inv) inv.current_qty = newQty
-      else toast(`No inventory match for "${r.medication}" — stock not adjusted`, 'warn')
-      r.status = 'Dispensed'
-    }
+    { kind: 'rpc', rpcName: 'dispense_prescription', payload: { p_prescription_id: r.id, p_inventory_id: inv.id, p_quantity: 1 } },
+    () => { r.status = 'Dispensed'; inv.current_qty = Math.max(0, inv.current_qty - 1) },
   )
 }
 
 async function approve(r: any) {
-  // Same reasoning as dispense() — resolve every inventory match and its
-  // resulting quantity up front. Tracked via a running per-item map (rather
-  // than mutating inventory.value directly here) so two requisition lines
-  // for the same item still deduct cumulatively, exactly as the sequential
-  // version did.
-  const items = r.items || []
-  const matched: { inv: any; newQty: number }[] = []
-  const unmatchedNames: string[] = []
-  const runningQty = new Map<string, number>()
-  for (const it of items) {
-    const inv = matchInventoryItem(inventory.value, it.name)
-    if (inv) {
-      const currentQty = runningQty.has(inv.id) ? runningQty.get(inv.id)! : inv.current_qty
-      const newQty = Math.max(0, currentQty - Number(it.qty || 1))
-      runningQty.set(inv.id, newQty)
-      matched.push({ inv, newQty })
-    } else {
-      unmatchedNames.push(it.name)
-    }
-  }
   await queueOrRun(
     'Requisition approved and deducted from stock',
-    [
-      { table: 'requisitions', kind: 'update', payload: { status: 'Approved & Dispensed' }, match: { id: r.id } },
-      ...matched.map(({ inv, newQty }) => ({ table: 'pharmacy_inventory', kind: 'update' as const, payload: { current_qty: newQty }, match: { id: inv.id } })),
-    ],
-    () => {
-      matched.forEach(({ inv, newQty }) => { inv.current_qty = newQty })
-      unmatchedNames.forEach((name) => toast(`No inventory match for "${name}" — stock not adjusted`, 'warn'))
-      r.status = 'Approved & Dispensed'
-    }
+    { kind: 'rpc', rpcName: 'approve_requisition', payload: { p_requisition_id: r.id } },
+    () => { r.status = 'Approved & Dispensed'; void load() },
   )
 }
 
 async function deny(r: any) {
   await queueOrRun(
     'Requisition denied — out of stock',
-    { table: 'requisitions', kind: 'update', payload: { status: 'Denied / Out of Stock' }, match: { id: r.id } },
-    () => { r.status = 'Denied / Out of Stock' }
+    { kind: 'rpc', rpcName: 'deny_requisition', payload: { p_requisition_id: r.id, p_reason: 'Out of stock' } },
+    () => { r.status = 'Denied / Out of Stock' },
   )
 }
 </script>

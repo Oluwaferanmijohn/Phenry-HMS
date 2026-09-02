@@ -17,7 +17,6 @@ import { useProfile } from '~/composables/useAuth'
 const props = defineProps<{ modelValue: boolean; patientId: string; patientName: string }>()
 const emit = defineEmits<{ 'update:modelValue': [boolean]; added: [any] }>()
 
-const supabase = useSupabaseClient()
 const profile = useProfile()
 const { queueOrRun } = useSyncQueue()
 
@@ -33,21 +32,21 @@ async function submit() {
   const prescribedByRole = profile.value!.role
   const targetMed = med.value || 'Medication'
   const targetSig = sig.value || 'As directed'
-  await queueOrRun(`Prescription sent to pharmacy for ${targetPatientName}`, async () => {
-    const { data, error } = await supabase
-      .from('prescriptions')
-      .insert({
-        patient_id: targetPatientId,
-        prescribed_by_profile_id: prescribedByProfileId,
-        prescribed_by_role: prescribedByRole,
-        medication: targetMed,
-        sig: targetSig,
-      })
-      .select()
-      .single()
-    if (error) throw error
-    emit('added', data)
-  })
+  const prescription = {
+    id: crypto.randomUUID(),
+    patient_id: targetPatientId,
+    prescribed_by_profile_id: prescribedByProfileId,
+    prescribed_by_role: prescribedByRole,
+    medication: targetMed,
+    sig: targetSig,
+    status: 'Pending',
+    date: new Date().toISOString(),
+  }
+  await queueOrRun(
+    `Prescription sent to pharmacy for ${targetPatientName}`,
+    { table: 'prescriptions', kind: 'insert', payload: prescription },
+    () => emit('added', prescription),
+  )
   submitting.value = false
   med.value = ''
   sig.value = ''

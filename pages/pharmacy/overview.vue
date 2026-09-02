@@ -98,18 +98,14 @@ const pendingReq = computed(() => requisitions.value)
 
 async function dispense(r: any) {
   const inv = matchInventoryItem(inventory.value, r.medication)
-  const newQty = inv ? Math.max(0, inv.current_qty - 1) : null
+  if (!inv) return toast(`No inventory item matches "${r.medication}"; dispensing was not recorded`, 'warn')
   await queueOrRun(
     `${r.medication} dispensed to ${r.patient_name}`,
-    [
-      { table: 'prescriptions', kind: 'update', payload: { status: 'Dispensed' }, match: { id: r.id } },
-      ...(inv ? [{ table: 'pharmacy_inventory', kind: 'update' as const, payload: { current_qty: newQty }, match: { id: inv.id } }] : []),
-    ],
+    { kind: 'rpc', rpcName: 'dispense_prescription', payload: { p_prescription_id: r.id, p_inventory_id: inv.id, p_quantity: 1 } },
     () => {
-      if (inv) inv.current_qty = newQty
-      else toast(`No inventory match for "${r.medication}" — stock not adjusted`, 'warn')
+      inv.current_qty = Math.max(0, inv.current_qty - 1)
       prescriptions.value = prescriptions.value.filter((x) => x.id !== r.id)
-    }
+    },
   )
 }
 
@@ -120,50 +116,30 @@ async function restock() {
   const targetItemName = item.name
   const targetItemUnit = item.unit
   const qtyToAdd = restockQty.value
-  const baseQty = item.current_qty
   await queueOrRun(
     `${qtyToAdd} ${targetItemUnit} of ${targetItemName} added to stock`,
-    { table: 'pharmacy_inventory', kind: 'update', payload: { current_qty: baseQty + qtyToAdd }, match: { id: targetItemId } },
-    () => { item.current_qty = baseQty + qtyToAdd }
+    { kind: 'rpc', rpcName: 'receive_pharmacy_stock', payload: { p_inventory_id: targetItemId, p_quantity: qtyToAdd } },
+    () => { item.current_qty += qtyToAdd },
   )
   restockQty.value = null
 }
 
 async function approve(r: any) {
-  const items = r.items || []
-  const matched: { inv: any; newQty: number }[] = []
-  const unmatchedNames: string[] = []
-  const runningQty = new Map<string, number>()
-  for (const it of items) {
-    const inv = matchInventoryItem(inventory.value, it.name)
-    if (inv) {
-      const currentQty = runningQty.has(inv.id) ? runningQty.get(inv.id)! : inv.current_qty
-      const newQty = Math.max(0, currentQty - Number(it.qty || 1))
-      runningQty.set(inv.id, newQty)
-      matched.push({ inv, newQty })
-    } else {
-      unmatchedNames.push(it.name)
-    }
-  }
   await queueOrRun(
     'Requisition approved and deducted from stock',
-    [
-      { table: 'requisitions', kind: 'update', payload: { status: 'Approved & Dispensed' }, match: { id: r.id } },
-      ...matched.map(({ inv, newQty }) => ({ table: 'pharmacy_inventory', kind: 'update' as const, payload: { current_qty: newQty }, match: { id: inv.id } })),
-    ],
+    { kind: 'rpc', rpcName: 'approve_requisition', payload: { p_requisition_id: r.id } },
     () => {
-      matched.forEach(({ inv, newQty }) => { inv.current_qty = newQty })
-      unmatchedNames.forEach((name) => toast(`No inventory match for "${name}" — stock not adjusted`, 'warn'))
       requisitions.value = requisitions.value.filter((x) => x.id !== r.id)
-    }
+      void load()
+    },
   )
 }
 
 async function deny(r: any) {
   await queueOrRun(
     'Requisition denied — out of stock',
-    { table: 'requisitions', kind: 'update', payload: { status: 'Denied / Out of Stock' }, match: { id: r.id } },
-    () => { requisitions.value = requisitions.value.filter((x) => x.id !== r.id) }
+    { kind: 'rpc', rpcName: 'deny_requisition', payload: { p_requisition_id: r.id, p_reason: 'Out of stock' } },
+    () => { requisitions.value = requisitions.value.filter((x) => x.id !== r.id) },
   )
 }
 </script>

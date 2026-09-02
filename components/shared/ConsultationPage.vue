@@ -1,5 +1,22 @@
 <template>
-  <div v-if="patient">
+  <div v-if="directoryStatus === 'pending' || loadingContext">
+    <div class="page-header"><div><h1>Consultation</h1><div class="desc">Loading accessible patient information…</div></div></div>
+    <div class="card card-pad"><div class="cell-muted">Loading consultation workspace…</div></div>
+  </div>
+  <div v-else-if="directoryError || contextError">
+    <div class="page-header"><div><h1>Consultation</h1><div class="desc">The workspace could not be opened.</div></div></div>
+    <div class="card card-pad">
+      <EmptyState icon="alert" title="Consultation data could not be loaded" description="A temporary connection or permission error prevented the patient context from loading." />
+      <div style="margin-top:12px; text-align:center;"><button class="btn btn-secondary btn-sm" @click="retryConsultation">Try Again</button></div>
+    </div>
+  </div>
+  <div v-else-if="!patient">
+    <div class="page-header"><div><h1>Consultation</h1><div class="desc">Select an accessible patient to begin.</div></div></div>
+    <div class="card card-pad">
+      <EmptyState icon="user" title="No accessible patients" description="No patient is currently assigned to this account or present in its permitted waiting-room scope." />
+    </div>
+  </div>
+  <div v-else>
     <div class="page-header">
       <div><h1>Consultation — {{ patient.full_name }}</h1><div class="desc">{{ patient.patient_id }} · {{ fmtDate(new Date()) }}</div></div>
       <div class="page-actions">
@@ -132,7 +149,7 @@ import { fmtDate, computeAge } from '~/composables/useFormat'
 import { useToast } from '~/composables/useToast'
 import { useSyncQueue } from '~/composables/useSyncQueue'
 import { useProfile } from '~/composables/useAuth'
-import { resolveCycleManagerNames } from '~/composables/useCycleManagerNames'
+import { fetchClinicalPatientContext, fetchClinicalPatientDirectory } from '~/composables/useClinicalPatientAccess'
 import { useRecentPatientCache } from '~/composables/useRecentPatientCache'
 
 const { loadWithCache } = useRecentPatientCache()
@@ -166,6 +183,8 @@ const prescriptions = ref<any[]>([])
 const pastConsultations = ref<any[]>([])
 const pastLabResults = ref<any[]>([])
 const pendingOrders = ref<any[]>([])
+const loadingContext = ref(false)
+const contextError = ref('')
 
 const notes = ref('')
 const consultType = ref('Standard Consult')
@@ -200,66 +219,91 @@ const followUpDate = ref(tomorrow)
 const followUpTime = ref('09:00')
 
 async function loadPatientContext(patientId: string) {
+  if (!allPatients.value.some((entry) => entry.patient_id === patientId)) return
+  loadingContext.value = true
+  contextError.value = ''
   // Cached so a patient already opened once on this device can be reopened
   // offline — see useRecentPatientCache. The UI-state resets below (notes,
   // consultType, etc.) still run every time regardless of cache/online state.
-  const { data } = await loadWithCache(patientId, async () => {
-    const [bioRes, cycleRes, rxRes, consultRes, labRes, ordersRes] = await Promise.all([
-      supabase.from('bio_details').select('*, patient_names(full_name)').eq('patient_id', patientId).single(),
-      supabase.from('cycles').select('*').eq('patient_id', patientId).neq('status', 'Closed').order('start_date', { ascending: false }).limit(1).maybeSingle(),
-      supabase.from('prescriptions').select('*').eq('patient_id', patientId).neq('status', 'Cancelled').order('date', { ascending: false }),
-      supabase.from('consultations').select('*, profiles:provider_profile_id(full_name)').eq('patient_id', patientId).order('date', { ascending: false }),
-      supabase.from('lab_results').select('*, lab_templates(name)').eq('patient_id', patientId).order('collected_on', { ascending: false }),
-      supabase.from('lab_test_orders').select('*').eq('patient_id', patientId).eq('status', 'Ordered').order('created_at', { ascending: false }),
-    ])
-    const cycleManagerNameValue = cycleRes.data?.cycle_manager_id
-      ? (await resolveCycleManagerNames(supabase, [cycleRes.data.cycle_manager_id])).get(cycleRes.data.cycle_manager_id) || ''
-      : ''
-    return {
-      patient: bioRes.data ? { ...bioRes.data, full_name: bioRes.data.patient_names?.full_name } : null,
-      cycle: cycleRes.data,
-      cycleManagerName: cycleManagerNameValue,
-      prescriptions: rxRes.data || [],
-      pastConsultations: (consultRes.data || []).map((c: any) => ({ ...c, provider_name: c.profiles?.full_name || 'Staff' })),
-      pastLabResults: labRes.data || [],
-      pendingOrders: ordersRes.data || [],
-    }
-  })
+  try {
+    const { data } = await loadWithCache(patientId, async () => {
+      return fetchClinicalPatientContext(supabase, patientId)
+    })
 
-  patient.value = data?.patient || null
-  cycle.value = data?.cycle || null
-  cycleManagerName.value = data?.cycleManagerName || ''
-  prescriptions.value = data?.prescriptions || []
-  pastConsultations.value = data?.pastConsultations || []
-  pastLabResults.value = data?.pastLabResults || []
-  pendingOrders.value = data?.pendingOrders || []
+    if (!data?.patient) throw new Error('Patient context is unavailable')
+    patient.value = data.patient
+    cycle.value = data.cycle || null
+    cycleManagerName.value = data.cycleManagerName || ''
+    prescriptions.value = data.prescriptions || []
+    pastConsultations.value = data.pastConsultations || []
+    pastLabResults.value = data.pastLabResults || []
+    pendingOrders.value = data.pendingOrders || []
 
-  notes.value = cycle.value?.physician_notes || ''
-  consultType.value = 'Standard Consult'
-  diagnosis.value = cycle.value ? `Infertility — undergoing ${cycle.value.type}` : ''
-  icd.value = ''
-  showCloseCycle.value = false
-  outcomeDraft.value = ''
-  TEST_OPTIONS.forEach((t) => (orderedTests[t] = false))
+    notes.value = cycle.value?.physician_notes || ''
+    consultType.value = 'Standard Consult'
+    diagnosis.value = cycle.value ? `Infertility — undergoing ${cycle.value.type}` : ''
+    icd.value = ''
+    showCloseCycle.value = false
+    outcomeDraft.value = ''
+    TEST_OPTIONS.forEach((t) => (orderedTests[t] = false))
+  } catch {
+    patient.value = null
+    cycle.value = null
+    cycleManagerName.value = ''
+    prescriptions.value = []
+    pastConsultations.value = []
+    pastLabResults.value = []
+    pendingOrders.value = []
+    contextError.value = 'Patient context could not be loaded.'
+  } finally {
+    loadingContext.value = false
+  }
 }
 
-await useAsyncData(`consultation-init-${props.role}`, async () => {
-  const { data } = await supabase.from('patient_names').select('patient_id, full_name').order('full_name', { ascending: true })
-  allPatients.value = data || []
-  const startId = (route.query.patient as string) || allPatients.value[0]?.patient_id
-  if (startId) await loadPatientContext(startId)
-  return true
+const consultationDirectoryKey = `consultation-directory-${profile.value?.id || 'anonymous'}-${props.role}`
+const {
+  data: directoryData,
+  error: directoryError,
+  status: directoryStatus,
+  refresh: refreshDirectory,
+} = await useAsyncData<any[]>(consultationDirectoryKey, async () => {
+  const directory = await fetchClinicalPatientDirectory(supabase)
+  return directory.patients
+}, {
+  default: () => [],
+  getCachedData: (key, nuxtApp) => nuxtApp.isHydrating ? nuxtApp.payload.data[key] : undefined,
 })
+
+allPatients.value = directoryData.value || []
+const requestedPatientId = typeof route.query.patient === 'string' ? route.query.patient : ''
+const initialPatientId = allPatients.value.some((entry) => entry.patient_id === requestedPatientId)
+  ? requestedPatientId
+  : allPatients.value[0]?.patient_id
+if (initialPatientId) await loadPatientContext(initialPatientId)
+
+async function retryConsultation() {
+  contextError.value = ''
+  await refreshDirectory()
+  allPatients.value = directoryData.value || []
+  if (directoryError.value) return
+  const routePatientId = typeof route.query.patient === 'string' ? route.query.patient : ''
+  const nextPatientId = allPatients.value.some((entry) => entry.patient_id === routePatientId)
+    ? routePatientId
+    : allPatients.value[0]?.patient_id
+  if (nextPatientId) await loadPatientContext(nextPatientId)
+}
 
 function switchPatient(patientId: string) {
   router.replace({ query: { ...route.query, patient: patientId } })
-  loadPatientContext(patientId)
+  void loadPatientContext(patientId)
 }
 
 watch(
   () => route.query.patient,
   (pid) => {
-    if (pid && pid !== patient.value?.patient_id) loadPatientContext(pid as string)
+    if (typeof pid === 'string' && pid !== patient.value?.patient_id && allPatients.value.some((entry) => entry.patient_id === pid)) {
+      void loadPatientContext(pid)
+    }
   }
 )
 
@@ -280,21 +324,21 @@ async function sendToLab() {
   const targetCycleId = cycle.value?.id || null
   const orderedByProfileId = profile.value!.id
   const orderedByRole = props.role
-  await queueOrRun(`Lab order sent for ${targetPatientName}: ${tests.join(', ')}`, async () => {
-    const { data, error } = await supabase
-      .from('lab_test_orders')
-      .insert({
-        patient_id: targetPatientId,
-        cycle_id: targetCycleId,
-        ordered_by_profile_id: orderedByProfileId,
-        ordered_by_role: orderedByRole,
-        tests,
-      })
-      .select()
-      .single()
-    if (error) throw error
-    pendingOrders.value = [data, ...pendingOrders.value]
-  })
+  const order = {
+    id: crypto.randomUUID(),
+    patient_id: targetPatientId,
+    cycle_id: targetCycleId,
+    ordered_by_profile_id: orderedByProfileId,
+    ordered_by_role: orderedByRole,
+    tests,
+    status: 'Ordered',
+    created_at: new Date().toISOString(),
+  }
+  await queueOrRun(
+    `Lab order sent for ${targetPatientName}: ${tests.join(', ')}`,
+    { table: 'lab_test_orders', kind: 'insert', payload: order },
+    () => { pendingOrders.value = [order, ...pendingOrders.value] },
+  )
   sendingOrder.value = false
   TEST_OPTIONS.forEach((t) => (orderedTests[t] = false))
 }

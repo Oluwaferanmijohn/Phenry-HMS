@@ -13,6 +13,7 @@
           <div class="side">
             <div class="cell-muted" style="margin-bottom:4px; text-align:right;">{{ fmtWhen(m.created_at) }}</div>
             <StatusBadge :status="statusLabel(m.status)" />
+            <button v-if="m.status !== 'sent'" class="btn btn-secondary btn-sm" style="margin-top:6px;" :disabled="retrying === m.id" @click="retry(m)">{{ retrying === m.id ? 'Sending…' : 'Retry' }}</button>
           </div>
         </div>
       </div>
@@ -22,11 +23,14 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useToast } from '~/composables/useToast'
 
 const supabase = useSupabaseClient()
+const { toast } = useToast()
 const log = ref<any[]>([])
+const retrying = ref('')
 
-await useAsyncData('receptionist-messages', async () => {
+async function load() {
   const { data } = await supabase
     .from('messages_log')
     .select('*, patient_names(full_name)')
@@ -34,7 +38,23 @@ await useAsyncData('receptionist-messages', async () => {
     .limit(50)
   log.value = (data || []).map((m: any) => ({ ...m, patient_name: m.patient_names?.full_name || 'Unknown' }))
   return true
-})
+}
+await useAsyncData('receptionist-messages', load)
+
+async function retry(message: any) {
+  if (!navigator.onLine) return toast('Sending a WhatsApp message requires a connection', 'warn')
+  retrying.value = message.id
+  try {
+    const { data, error } = await supabase.functions.invoke('notify-whatsapp', { body: { message_id: message.id } })
+    if (error) throw error
+    toast(data?.sent ? 'Message sent' : 'Message could not be delivered', data?.sent ? 'success' : 'warn')
+    await load()
+  } catch (error: any) {
+    toast(error?.message || 'Message could not be delivered', 'warn')
+  } finally {
+    retrying.value = ''
+  }
+}
 
 function triggerLabel(t: string) {
   return t === 'rescheduled' ? 'Appointment Rescheduled' : 'Appointment Confirmation'

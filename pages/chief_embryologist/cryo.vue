@@ -57,10 +57,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { fmtDate } from '~/composables/useFormat'
-import { useToast } from '~/composables/useToast'
+import { useSyncQueue } from '~/composables/useSyncQueue'
 
 const supabase = useSupabaseClient()
-const { toast } = useToast()
+const { queueOrRun } = useSyncQueue()
 const tanks = ref<any[]>([])
 const records = ref<any[]>([])
 const showTank = ref(false)
@@ -96,13 +96,16 @@ function openUse(r: any) {
 async function confirmUse() {
   if (!activeRecord.value) return
   usingRecord.value = true
-  const { error } = await supabase.rpc('use_cryo_record', { p_record_id: activeRecord.value.id, p_straws_used: Number(useQty.value) })
-  usingRecord.value = false
-  if (error) {
-    toast(error.message)
-    return
+  try {
+    await queueOrRun('Cryogenic storage usage recorded', {
+      kind: 'rpc',
+      rpcName: 'use_cryo_record',
+      payload: { p_record_id: activeRecord.value.id, p_straws_used: Number(useQty.value) },
+    })
+    showUse.value = false
+    if (navigator.onLine) await load()
+  } finally {
+    usingRecord.value = false
   }
-  showUse.value = false
-  await load()
 }
 </script>

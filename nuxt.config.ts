@@ -1,7 +1,18 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+const configuredSupabaseOrigin = (() => {
+  try {
+    return process.env.SUPABASE_URL ? new URL(process.env.SUPABASE_URL).origin : ''
+  } catch {
+    return ''
+  }
+})()
+const configuredSupabaseSocket = configuredSupabaseOrigin.replace(/^http/, 'ws')
+const supabaseConnections = ["'self'", 'https://*.supabase.co', 'wss://*.supabase.co', configuredSupabaseOrigin, configuredSupabaseSocket].filter(Boolean).join(' ')
+const imageSources = ["'self'", 'data:', 'blob:', 'https://*.supabase.co', configuredSupabaseOrigin].filter(Boolean).join(' ')
+
 export default defineNuxtConfig({
   compatibilityDate: '2026-01-01',
-  devtools: { enabled: true },
+  devtools: { enabled: process.env.NODE_ENV === 'development' },
 
   modules: ['@nuxtjs/supabase', '@nuxtjs/tailwindcss'],
 
@@ -42,6 +53,18 @@ export default defineNuxtConfig({
     head: {
       title: 'Phenry Health EMR',
       meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' }],
+    },
+  },
+
+  routeRules: {
+    '/**': {
+      headers: {
+        'Content-Security-Policy': `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src ${imageSources}; font-src 'self' data:; connect-src ${supabaseConnections}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
+        'Referrer-Policy': 'strict-origin-when-cross-origin',
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'DENY',
+      },
     },
   },
 })

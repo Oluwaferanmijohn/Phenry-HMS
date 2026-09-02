@@ -59,10 +59,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { computeAge } from '~/composables/useFormat'
 
 const supabase = useSupabaseClient()
+const route = useRoute()
 const search = ref('')
 const patients = ref<any[]>([])
 const showProfile = ref(false)
@@ -101,4 +102,8 @@ async function openProfile(patientId: string) {
     .maybeSingle()
   activeCycle.value = cycleData
 }
+
+watch(() => route.query.patient, (patientId) => {
+  if (typeof patientId === 'string') void openProfile(patientId)
+}, { immediate: true })
 </script>

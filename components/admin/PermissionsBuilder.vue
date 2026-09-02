@@ -8,11 +8,11 @@
       <tbody>
         <tr v-for="r in RESOURCES" :key="r.key">
           <td class="cell-strong">{{ r.label }}</td>
-          <td><input v-model="rows[r.key].can_view" type="checkbox" /></td>
-          <td><input v-model="rows[r.key].can_create" type="checkbox" /></td>
-          <td><input v-model="rows[r.key].can_edit" type="checkbox" /></td>
+          <td><input v-model="getRow(r.key).can_view" type="checkbox" /></td>
+          <td><input v-model="getRow(r.key).can_create" type="checkbox" /></td>
+          <td><input v-model="getRow(r.key).can_edit" type="checkbox" /></td>
           <td>
-            <select v-model="rows[r.key].scope" class="input" style="font-size:11.5px; padding:4px 8px;">
+            <select v-model="getRow(r.key).scope" class="input" style="font-size:11.5px; padding:4px 8px;">
               <option value="own">Own records only</option>
               <option value="assigned">Assigned patients only</option>
               <option value="all">All records</option>
@@ -63,6 +63,9 @@ function emptyRows() {
   return obj
 }
 const rows = reactive(emptyRows())
+function getRow(key: string) {
+  return rows[key]!
+}
 
 watch(
   () => [props.modelValue, props.roleKey],
@@ -79,7 +82,7 @@ watch(
 
 async function save() {
   saving.value = true
-  const upserts = RESOURCES.map((r) => ({ role_key: props.roleKey, resource: r.key, ...rows[r.key] }))
+  const upserts = RESOURCES.map((r) => ({ role_key: props.roleKey, resource: r.key, ...getRow(r.key) }))
   const { error } = await supabase.from('role_permissions').upsert(upserts, { onConflict: 'role_key,resource' })
   saving.value = false
   if (error) {

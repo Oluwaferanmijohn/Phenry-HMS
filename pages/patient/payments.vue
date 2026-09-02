@@ -72,7 +72,7 @@
       </div>
       <template #footer>
         <button class="btn btn-secondary" @click="showUploadModal = false">Cancel</button>
-        <button class="btn btn-primary" :disabled="!chosenFile || submitting" @click="submitProof">
+        <button class="btn btn-primary" :disabled="!chosenFile || !uploadAmount || !uploadDate || submitting" @click="submitProof">
           <Icon name="upload" :size="13" /> {{ submitting ? 'Submitting…' : 'Submit for Verification' }}
         </button>
       </template>
@@ -119,21 +119,30 @@ const submitting = ref(false)
 
 function openUploadProof(m: any) {
   activeMilestone.value = m
-  uploadAmount.value = ''
-  uploadDate.value = ''
+  uploadAmount.value = String(m.amount || '')
+  uploadDate.value = new Date().toISOString().slice(0, 10)
   chosenFile.value = null
   showUploadModal.value = true
 }
 
 function onFileChosen(e: Event) {
-  chosenFile.value = (e.target as HTMLInputElement).files?.[0] || null
+  const file = (e.target as HTMLInputElement).files?.[0] || null
+  const allowed = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
+  if (file && (!allowed.has(file.type) || file.size > 10 * 1024 * 1024)) {
+    chosenFile.value = null
+    ;(e.target as HTMLInputElement).value = ''
+    toast('Choose a PDF, JPEG, PNG, or WebP file no larger than 10 MB', 'warn')
+    return
+  }
+  chosenFile.value = file
 }
 
 async function submitProof() {
   if (!chosenFile.value || !activeMilestone.value) return
   submitting.value = true
 
-  const path = `${patientId}/${activeMilestone.value.id}/${Date.now()}-${chosenFile.value.name}`
+  const safeName = chosenFile.value.name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-120)
+  const path = `${patientId}/${activeMilestone.value.id}/${crypto.randomUUID()}-${safeName}`
   const { error: uploadError } = await supabase.storage.from('payment-proofs').upload(path, chosenFile.value)
   if (uploadError) {
     submitting.value = false
@@ -146,6 +155,12 @@ async function submitProof() {
   // partial payment blind (see submitProof's amount/date fields above,
   // which used to be collected here and then thrown away).
   const claimedAmount = uploadAmount.value ? Number(uploadAmount.value.replace(/[^0-9.]/g, '')) : null
+  if (!Number.isFinite(claimedAmount) || claimedAmount! <= 0 || claimedAmount! > Number(activeMilestone.value.amount) || !uploadDate.value) {
+    await supabase.storage.from('payment-proofs').remove([path])
+    submitting.value = false
+    toast('Enter a valid amount up to the milestone value and a payment date', 'warn')
+    return
+  }
 
   const { data: updated, error: updateError } = await supabase
     .from('payment_milestones')
@@ -161,7 +176,8 @@ async function submitProof() {
 
   submitting.value = false
   if (updateError) {
-    toast('File uploaded, but could not update the milestone — contact support', 'warn')
+    await supabase.storage.from('payment-proofs').remove([path])
+    toast('Payment proof could not be recorded — please try again', 'warn')
     return
   }
 

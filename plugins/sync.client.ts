@@ -1,12 +1,26 @@
-export default defineNuxtPlugin(async () => {
-  const { setOnline, hydrate } = useSyncQueue()
-
-  // Restore any writes queued in a previous session (app was closed or
-  // refreshed while offline with pending changes) before we start
-  // reflecting online/offline state.
-  await hydrate()
+export default defineNuxtPlugin(() => {
+  const user = useSupabaseUser()
+  const { setOnline, hydrate, clearUserState } = useSyncQueue()
+  const handleOnline = () => setOnline(true)
+  const handleOffline = () => setOnline(false)
 
   setOnline(navigator.onLine)
-  window.addEventListener('online', () => setOnline(true))
-  window.addEventListener('offline', () => setOnline(false))
+  window.addEventListener('online', handleOnline)
+  window.addEventListener('offline', handleOffline)
+
+  const stop = watch(
+    () => user.value?.id,
+    async (userId, previousUserId) => {
+      if (previousUserId && previousUserId !== userId) await clearUserState(previousUserId)
+      await hydrate(userId)
+    },
+    { immediate: true },
+  )
+
+  const cleanup = () => {
+    stop()
+    window.removeEventListener('online', handleOnline)
+    window.removeEventListener('offline', handleOffline)
+  }
+  if (import.meta.hot) import.meta.hot.dispose(cleanup)
 })

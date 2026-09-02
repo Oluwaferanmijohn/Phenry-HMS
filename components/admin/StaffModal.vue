@@ -14,6 +14,7 @@
     <template v-else>
       <div class="field"><label>Full Name</label><input v-model="form.fullName" class="input" placeholder="e.g. Amaka Obi" /></div>
       <div class="field"><label>Email</label><input v-model="form.email" class="input" type="email" :disabled="mode === 'edit'" placeholder="amaka.obi@example.com" /></div>
+      <div class="field"><label>Phone (for emergency alerts)</label><input v-model="form.phone" class="input" type="tel" placeholder="+234…" /></div>
       <div class="field">
         <label>Role</label>
         <select v-model="selectedRole" class="input">
@@ -65,7 +66,7 @@ const supabase = useSupabaseClient()
 const { toast } = useToast()
 
 const mode = computed(() => (props.editingStaff ? 'edit' : 'create'))
-const form = reactive({ fullName: '', email: '' })
+const form = reactive({ fullName: '', email: '', phone: '' })
 const selectedRole = ref('')
 const customRoles = ref<any[]>([])
 const newRoleLabel = ref('')
@@ -85,10 +86,12 @@ watch(
     if (props.editingStaff) {
       form.fullName = props.editingStaff.full_name
       form.email = props.editingStaff.email || ''
+      form.phone = props.editingStaff.phone || ''
       selectedRole.value = props.editingStaff.role || props.editingStaff.custom_role_key
     } else {
       form.fullName = ''
       form.email = ''
+      form.phone = ''
       selectedRole.value = 'receptionist'
     }
   }
@@ -119,25 +122,33 @@ async function submit() {
   const isCustom = !FIXED_STAFF_ROLES.includes(selectedRole.value)
 
   if (mode.value === 'edit') {
-    const { error } = await supabase
-      .from('profiles')
-      .update(isCustom ? { role: null, custom_role_key: selectedRole.value } : { role: selectedRole.value, custom_role_key: null })
-      .eq('id', props.editingStaff.id)
-    submitting.value = false
-    if (error) {
-      toast('Could not update the role', 'warn')
-      return
+    try {
+      await $fetch('/api/admin/update-staff', {
+        method: 'POST',
+        body: {
+          profileId: props.editingStaff.id,
+          fullName: form.fullName,
+          phone: form.phone,
+          role: isCustom ? null : selectedRole.value,
+          customRoleKey: isCustom ? selectedRole.value : null,
+          active: props.editingStaff.active,
+        },
+      })
+      toast(`${form.fullName}'s staff record updated`, 'success')
+      emit('saved')
+      close()
+    } catch (e: any) {
+      toast(e?.data?.statusMessage || e?.statusMessage || 'Could not update the staff record', 'warn')
+    } finally {
+      submitting.value = false
     }
-    toast(`${form.fullName}'s role updated`, 'success')
-    emit('saved')
-    close()
     return
   }
 
   try {
     const result = await $fetch<{ userId: string; tempPassword: string }>('/api/admin/create-staff', {
       method: 'POST',
-      body: { fullName: form.fullName, email: form.email, role: isCustom ? null : selectedRole.value, customRoleKey: isCustom ? selectedRole.value : null },
+      body: { fullName: form.fullName, email: form.email, phone: form.phone, role: isCustom ? null : selectedRole.value, customRoleKey: isCustom ? selectedRole.value : null },
     })
     createdPassword.value = result.tempPassword
   } catch (e: any) {

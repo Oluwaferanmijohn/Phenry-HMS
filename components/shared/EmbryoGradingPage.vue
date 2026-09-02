@@ -51,7 +51,11 @@ const DAY_DEFS = [
   { key: 'day2', label: 'Day 2', presets: ['4-Cell', '2-Cell', 'Fragmented', 'Arrested'] },
   { key: 'day3', label: 'Day 3', presets: ['8-Cell Grade A', '8-Cell Grade B', '6-Cell', 'Arrested'] },
   { key: 'day5', label: 'Day 5/6', presets: ['Expanded Blastocyst', 'Early Blastocyst', 'Morula', 'Arrested'] },
-]
+] as const
+type DayKey = (typeof DAY_DEFS)[number]['key']
+type DayDefinition = (typeof DAY_DEFS)[number]
+type GradeRow = { label: string; count: string | number }
+type DayBatch = { total: string | number; grades: GradeRow[] }
 
 const props = defineProps<{ role: string }>()
 const supabase = useSupabaseClient()
@@ -64,21 +68,22 @@ const patientId = ref('')
 const patientName = ref('')
 const saving = ref(false)
 
-function emptyBatches() {
-  return { day1: { total: '', grades: [] as any[] }, day2: { total: '', grades: [] as any[] }, day3: { total: '', grades: [] as any[] }, day5: { total: '', grades: [] as any[] } }
+function emptyBatches(): Record<DayKey, DayBatch> {
+  return { day1: { total: '', grades: [] }, day2: { total: '', grades: [] }, day3: { total: '', grades: [] }, day5: { total: '', grades: [] } }
 }
 const batches = reactive(emptyBatches())
 
-function isCustom(d: any, g: any) {
-  return g.label !== '' && !d.presets.includes(g.label)
+function isCustom(d: DayDefinition, g: GradeRow) {
+  return g.label !== '' && !(d.presets as readonly string[]).includes(g.label)
 }
-function setGradeLabel(d: any, i: number, val: string) {
-  batches[d.key].grades[i].label = val === '__custom__' ? '' : val
+function setGradeLabel(d: DayDefinition, i: number, val: string) {
+  const grade = batches[d.key].grades[i]
+  if (grade) grade.label = val === '__custom__' ? '' : val
 }
-function gradedSum(d: any) {
-  return batches[d.key].grades.reduce((s: number, g: any) => s + Number(g.count || 0), 0)
+function gradedSum(d: DayDefinition) {
+  return batches[d.key].grades.reduce((sum, grade) => sum + Number(grade.count || 0), 0)
 }
-function matchTone(d: any) {
+function matchTone(d: DayDefinition) {
   const total = Number(batches[d.key].total || 0)
   return total > 0 && gradedSum(d) === total ? 'green' : 'amber'
 }

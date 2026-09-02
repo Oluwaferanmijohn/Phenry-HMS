@@ -181,25 +181,23 @@ async function confirmBooking() {
   const targetPatientId = patientId.value
   const targetProviderRole = providerRole.value
 
-  await queueOrRun(`${pName} booked with ${provider.full_name}`, async () => {
-    const { data, error } = await supabase
-      .from('appointments')
-      .insert({
-        patient_id: targetPatientId,
-        provider_role: targetProviderRole,
-        provider_profile_id: provider.id,
-        type: 'Consultation',
-        date,
-        time,
-        duration: 30,
-        status: 'Scheduled',
-        room: targetProviderRole === 'doctor' ? 'Room 1' : 'Room 2',
-      })
-      .select()
-      .single()
-    if (error) throw error
-    sessionBookings.value.unshift({ ...data, patient_name: pName, provider_name: provider.full_name })
-  })
+  const appointment = {
+    id: crypto.randomUUID(),
+    patient_id: targetPatientId,
+    provider_role: targetProviderRole,
+    provider_profile_id: provider.id,
+    type: 'Consultation',
+    date,
+    time,
+    duration: 30,
+    status: 'Scheduled',
+    room: targetProviderRole === 'doctor' ? 'Room 1' : 'Room 2',
+  }
+  await queueOrRun(
+    `${pName} booked with ${provider.full_name}`,
+    { table: 'appointments', kind: 'insert', payload: appointment },
+    () => sessionBookings.value.unshift({ ...appointment, patient_name: pName, provider_name: provider.full_name }),
+  )
 
   patientId.value = ''
   bookingDay.value = null

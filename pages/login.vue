@@ -7,7 +7,7 @@
       </div>
       <div>
         <div class="tagline">One clinic. <span>Ten roles.</span> One record of truth — built offline-first, secured by row-level access.</div>
-        <div class="foot-note" style="margin-top:14px;">© 2026 Phenry Health EMR · Nuxt 3 · Supabase · PowerSync · Evolution API (WhatsApp)</div>
+        <div class="foot-note" style="margin-top:14px;">© 2026 Phenry Health EMR · Nuxt 4 · Supabase · Encrypted offline queue</div>
       </div>
     </div>
     <div class="login-form-side">
@@ -18,7 +18,7 @@
           <div class="tab" :class="{ active: mode === 'patient' }" @click="mode = 'patient'">Patient</div>
         </div>
         <p class="muted" style="font-size:13px; margin-top:10px;">
-          {{ mode === 'staff' ? 'Use the email and password your clinic gave you.' : 'Use your Patient ID and the temporary password given to you at registration (your surname).' }}
+          {{ mode === 'staff' ? 'Use the email and password your clinic gave you.' : 'Use your Patient ID and the temporary password given to you at registration.' }}
         </p>
         <p v-if="revoked" class="hint" style="color:var(--red-600); margin-top:10px;">Your access has been revoked. Contact your Admin Manager if this is unexpected.</p>
 
@@ -52,7 +52,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { loadProfile } from '~/composables/useAuth'
-import { roleHomePath } from '~/composables/useRoleMeta'
+import { profileHomePath } from '~/composables/useRoleMeta'
 import { patientLoginEmail } from '~/composables/usePatientAuth'
 
 definePageMeta({ layout: false })
@@ -84,6 +84,6 @@ async function handleSubmit() {
   }
 
   const profile = await loadProfile()
-  await navigateTo(profile ? roleHomePath(profile.role ?? '') : '/no-access')
+  await navigateTo(profile ? profileHomePath(profile) : '/no-access')
 }
 </script>

@@ -15,14 +15,14 @@
         </div>
         <div class="field">
           <label>New Password</label>
-          <input v-model="newPassword" class="input" type="password" placeholder="Enter new password" />
+          <input v-model="newPassword" class="input" type="password" autocomplete="new-password" placeholder="Enter new password" />
           <div class="hint" :style="{ color: strong ? 'var(--green-600)' : 'var(--red-600)' }">
-            {{ strong ? 'Strong password' : 'Weak — add numbers & symbols' }}
+            {{ strong ? 'Password meets all requirements' : 'Use 12+ characters with upper/lowercase, a number, and a symbol' }}
           </div>
         </div>
         <div class="field">
           <label>Confirm New Password</label>
-          <input v-model="confirmPassword" class="input" type="password" placeholder="Re-enter new password" />
+          <input v-model="confirmPassword" class="input" type="password" autocomplete="new-password" placeholder="Re-enter new password" />
         </div>
         <button class="btn btn-primary btn-block" :disabled="submitting" @click="submit">
           Save Password &amp; Access Portal <Icon name="arrow-right" :size="14" />
@@ -37,7 +37,7 @@
 import { ref, computed } from 'vue'
 import { useToast } from '~/composables/useToast'
 import { loadProfile } from '~/composables/useAuth'
-import { roleHomePath } from '~/composables/useRoleMeta'
+import { profileHomePath } from '~/composables/useRoleMeta'
 
 definePageMeta({ layout: false })
 
@@ -48,11 +48,15 @@ const newPassword = ref('')
 const confirmPassword = ref('')
 const submitting = ref(false)
 
-const strong = computed(() => newPassword.value.length >= 8 && /\d/.test(newPassword.value) && /[^A-Za-z0-9]/.test(newPassword.value))
+const strong = computed(() => newPassword.value.length >= 12
+  && /[a-z]/.test(newPassword.value)
+  && /[A-Z]/.test(newPassword.value)
+  && /\d/.test(newPassword.value)
+  && /[^A-Za-z0-9]/.test(newPassword.value))
 
 async function submit() {
-  if (!newPassword.value || newPassword.value.length < 6) {
-    toast('Choose a password with at least 6 characters', 'warn')
+  if (!strong.value) {
+    toast('Use 12+ characters with upper/lowercase, a number, and a symbol', 'warn')
     return
   }
   if (newPassword.value !== confirmPassword.value) {
@@ -69,7 +73,7 @@ async function submit() {
   }
 
   // Goes through a security-definer RPC rather than a direct table update —
-  // see 00000000000014_secure_password_reset.sql. Re-fetching the profile
+  // implemented by the reconciliation migration. Re-fetching the profile
   // afterward (rather than trusting an optimistic local mutation) confirms
   // the flag is actually clear in the database before we ever navigate
   // away, so a silent failure here can't leave the account stuck bouncing
@@ -90,6 +94,6 @@ async function submit() {
   }
 
   toast('Password updated — welcome to your portal', 'success')
-  await navigateTo(roleHomePath(updated.role ?? 'patient'))
+  await navigateTo(profileHomePath(updated))
 }
 </script>

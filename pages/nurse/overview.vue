@@ -7,7 +7,7 @@
       <div class="card-body tight">
         <div v-if="!tasks.length" style="padding:18px;"><EmptyState icon="clipboard" title="Nothing on your list" description="Add a personal reminder for this shift below." /></div>
         <div v-for="t in tasks" :key="t.id" class="list-row">
-          <input type="checkbox" :checked="t.done" style="width:16px;height:16px;" @change="toggleTask(t.id)" />
+          <input type="checkbox" :checked="t.done" style="width:16px;height:16px;" @change="toggleTask(t)" />
           <div style="margin-left:6px;"><div class="main-txt" :style="{ textDecoration: t.done ? 'line-through' : 'none', color: t.done ? 'var(--text-500)' : 'inherit' }">{{ t.label }}</div></div>
         </div>
         <div style="padding:10px 20px; display:flex; gap:8px;">
@@ -24,11 +24,11 @@
           <div class="field"><label>Select Patient</label><select v-model="vitalsPatient" class="input"><option v-for="p in patients" :key="p.patient_id" :value="p.patient_id">{{ p.full_name }}</option></select></div>
           <div class="form-row">
             <div class="field"><label>Blood Pressure</label><input v-model="vitals.bp" class="input" placeholder="120/80" /></div>
-            <div class="field"><label>Temperature</label><input v-model="vitals.temp" class="input" placeholder="98.6" /></div>
+            <div class="field"><label>Temperature (°C)</label><input v-model="vitals.temp" class="input" type="number" step="0.1" placeholder="36.8" /></div>
           </div>
-          <div class="field"><label>Weight</label><input v-model="vitals.weight" class="input" placeholder="150.0" /></div>
+          <div class="field"><label>Weight (kg)</label><input v-model="vitals.weight" class="input" type="number" step="0.1" placeholder="62.0" /></div>
           <div class="field"><label>Clinical Notes</label><textarea v-model="vitals.notes" class="input" rows="2" placeholder="Optional observations…" /></div>
-          <button class="btn btn-primary" @click="saveVitals"><Icon name="check-circle" :size="13" /> Save to EMR</button>
+          <button class="btn btn-primary" :disabled="savingVitals" @click="saveVitals"><Icon name="check-circle" :size="13" /> Save to EMR</button>
         </div>
       </div>
 
@@ -70,38 +70,100 @@ const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', mon
 const patients = ref<any[]>([])
 const vitalsPatient = ref('')
 const vitals = ref({ bp: '', temp: '', weight: '', notes: '' })
+const savingVitals = ref(false)
+const todayIso = (() => {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+})()
 
-// No nursing_tasks table exists in spec §1 — this is an honest, session-only
-// personal checklist rather than the prototype's hardcoded example tasks
-// tied to patient names that may not exist in this deployment.
-let nextTaskId = 1
-const tasks = ref<{ id: number; label: string; done: boolean }[]>([])
+const tasks = ref<{ id: string; label: string; done: boolean; updated_at?: string }[]>([])
 const newTask = ref('')
 const pendingCount = computed(() => tasks.value.filter((t) => !t.done).length)
 
-function toggleTask(id: number) {
-  const t = tasks.value.find((x) => x.id === id)
-  if (t) t.done = !t.done
+async function toggleTask(task: { id: string; label: string; done: boolean; updated_at?: string }) {
+  const previous = task.done
+  task.done = !previous
+  try {
+    await queueOrRun(`${task.done ? 'Completed' : 'Reopened'} shift task`, {
+      table: 'nursing_tasks',
+      kind: 'update',
+      payload: { done: task.done },
+      match: { id: task.id },
+      expectedUpdatedAt: task.updated_at,
+    })
+  } catch {
+    task.done = previous
+  }
 }
-function addTask() {
-  if (!newTask.value.trim()) return
-  tasks.value.push({ id: nextTaskId++, label: newTask.value.trim(), done: false })
+async function addTask() {
+  const label = newTask.value.trim()
+  if (!label || !profile.value) return
+  if (label.length > 300) return toast('Shift reminders must be 300 characters or fewer', 'warn')
+  const task = { id: crypto.randomUUID(), label, done: false }
+  tasks.value.push(task)
   newTask.value = ''
+  try {
+    await queueOrRun('Shift reminder saved', {
+      table: 'nursing_tasks',
+      kind: 'insert',
+      payload: { ...task, nurse_id: profile.value.id, shift_date: todayIso },
+    })
+  } catch {
+    tasks.value = tasks.value.filter((item) => item.id !== task.id)
+  }
 }
 
 await useAsyncData('nurse-overview', async () => {
-  const { data } = await supabase.from('patient_names').select('patient_id, full_name').order('full_name', { ascending: true })
-  patients.value = data || []
+  const [patientResult, taskResult] = await Promise.all([
+    supabase.from('patient_names').select('patient_id, full_name').order('full_name', { ascending: true }),
+    supabase.from('nursing_tasks').select('id,label,done,updated_at').eq('nurse_id', profile.value!.id).eq('shift_date', todayIso).order('created_at'),
+  ])
+  if (patientResult.error) throw patientResult.error
+  if (taskResult.error) throw taskResult.error
+  patients.value = patientResult.data || []
+  tasks.value = taskResult.data || []
   vitalsPatient.value = patients.value[0]?.patient_id || ''
   return true
 })
 
-// Matches the prototype's own behavior exactly: saveVitals() doesn't persist
-// anywhere either (no vitals table exists in spec §1) — just confirms the action.
-function saveVitals() {
+async function saveVitals() {
+  if (!vitalsPatient.value || !profile.value) return toast('Select a patient first', 'warn')
+  if (![vitals.value.bp, vitals.value.temp, vitals.value.weight, vitals.value.notes].some((value) => String(value).trim())) {
+    return toast('Enter at least one vital or clinical note', 'warn')
+  }
+  const bpMatch = vitals.value.bp.trim().match(/^(\d{2,3})\s*\/\s*(\d{2,3})$/)
+  if (vitals.value.bp && !bpMatch) return toast('Blood pressure must use the format 120/80', 'warn')
+  const systolic = bpMatch ? Number(bpMatch[1]) : null
+  const diastolic = bpMatch ? Number(bpMatch[2]) : null
+  const temperature = vitals.value.temp === '' ? null : Number(vitals.value.temp)
+  const weight = vitals.value.weight === '' ? null : Number(vitals.value.weight)
+  if ((temperature !== null && (!Number.isFinite(temperature) || temperature < 30 || temperature > 45))
+    || (weight !== null && (!Number.isFinite(weight) || weight < 2 || weight > 400))) {
+    return toast('Check the temperature and weight values', 'warn')
+  }
   const p = patients.value.find((x) => x.patient_id === vitalsPatient.value)
-  toast(`Vitals saved for ${p?.full_name || 'patient'}`, 'success')
-  vitals.value = { bp: '', temp: '', weight: '', notes: '' }
+  savingVitals.value = true
+  try {
+    await queueOrRun(`Vitals saved for ${p?.full_name || 'patient'}`, {
+      table: 'nurse_visits',
+      kind: 'insert',
+      payload: {
+        id: crypto.randomUUID(),
+        patient_id: vitalsPatient.value,
+        documented_by: profile.value.id,
+        visit_date: todayIso,
+        bp_systolic: systolic,
+        bp_diastolic: diastolic,
+        temperature_c: temperature,
+        weight_kg: weight,
+        nursing_notes: vitals.value.notes.trim() || null,
+        condition: 'Stable',
+      },
+    })
+    vitals.value = { bp: '', temp: '', weight: '', notes: '' }
+  } finally {
+    savingVitals.value = false
+  }
 }
 
 const reqUrgency = ref('Routine')
@@ -118,6 +180,7 @@ function resetReq() {
 
 async function sendRequisition() {
   if (!reqItem.value) return toast('Enter an item to request', 'warn')
+  if (!Number.isInteger(reqQty.value) || reqQty.value < 1) return toast('Quantity must be a positive whole number', 'warn')
   const requestedBy = profile.value!.id
   const snapshotItem = reqItem.value
   const snapshotQty = reqQty.value

@@ -2,7 +2,7 @@
   <div>
     <div class="page-header">
       <div><h1>Inventory Ledger &amp; Restocking</h1><div class="desc">Manage central stock, log shipments, and monitor critical thresholds.</div></div>
-      <div class="page-actions"><button class="btn btn-danger-solid" @click="toast('Emergency restock request sent to supplier')"><Icon name="alert" :size="14" /> Emergency Restock</button></div>
+      <div class="page-actions"><button class="btn btn-danger-solid" @click="showEmergency = true"><Icon name="alert" :size="14" /> Emergency Restock</button></div>
     </div>
     <div class="grid grid-main-side">
       <div class="card">
@@ -30,6 +30,15 @@
         </table>
       </div>
     </div>
+    <Modal v-model="showEmergency" title="Emergency Supplier Request">
+      <div class="field"><label>Inventory Item</label><select v-model="emergencyItemId" class="input"><option v-for="i in inventory" :key="i.id" :value="i.id">{{ i.name }} ({{ i.current_qty }} remaining)</option></select></div>
+      <div class="field"><label>Quantity Requested</label><input v-model.number="emergencyQty" class="input" type="number" min="1" /></div>
+      <div class="field"><label>Notes</label><textarea v-model="emergencyNotes" class="input" rows="3" placeholder="Supplier or delivery instructions" /></div>
+      <template #footer>
+        <button class="btn btn-secondary" @click="showEmergency = false">Cancel</button>
+        <button class="btn btn-danger-solid" :disabled="!emergencyItemId || !emergencyQty" @click="requestEmergencyRestock">Create Request</button>
+      </template>
+    </Modal>
   </div>
 </template>
 
@@ -37,21 +46,28 @@
 import { ref } from 'vue'
 import { useToast } from '~/composables/useToast'
 import { useSyncQueue } from '~/composables/useSyncQueue'
+import { useProfile } from '~/composables/useAuth'
 
 const supabase = useSupabaseClient()
 const { toast } = useToast()
 const { queueOrRun } = useSyncQueue()
+const profile = useProfile()
 
 const inventory = ref<any[]>([])
 const itemId = ref('')
 const qty = ref<number | null>(null)
 const batch = ref('')
 const expiry = ref('')
+const showEmergency = ref(false)
+const emergencyItemId = ref('')
+const emergencyQty = ref<number | null>(null)
+const emergencyNotes = ref('')
 
 await useAsyncData('pharmacy-inventory', async () => {
   const { data } = await supabase.from('pharmacy_inventory').select('*').order('name', { ascending: true })
   inventory.value = data || []
   itemId.value = inventory.value[0]?.id || ''
+  emergencyItemId.value = inventory.value[0]?.id || ''
   return true
 })
 
@@ -69,23 +85,44 @@ async function logShipment() {
   }
   const targetItemId = item.id
   const qtyReceived = qty.value
-  const baseQty = item.current_qty
   const targetExpiry = expiry.value
   const targetBatch = batch.value
-  const patch: any = { current_qty: baseQty + qtyReceived }
-  if (targetExpiry) patch.expiry = targetExpiry
-  if (targetBatch) patch.batch_number = targetBatch
   await queueOrRun(
     `Shipment logged — ${item.name} +${qtyReceived}`,
-    { table: 'pharmacy_inventory', kind: 'update', payload: patch, match: { id: targetItemId } },
+    {
+      kind: 'rpc',
+      rpcName: 'receive_pharmacy_stock',
+      payload: { p_inventory_id: targetItemId, p_quantity: qtyReceived, p_batch_number: targetBatch || null, p_expiry: targetExpiry || null },
+    },
     () => {
-      item.current_qty = patch.current_qty
-      if (patch.batch_number) item.batch_number = patch.batch_number
-      if (patch.expiry) item.expiry = patch.expiry
-    }
+      item.current_qty += qtyReceived
+      if (targetBatch) item.batch_number = targetBatch
+      if (targetExpiry) item.expiry = targetExpiry
+    },
   )
   qty.value = null
   batch.value = ''
   expiry.value = ''
+}
+
+async function requestEmergencyRestock() {
+  const item = inventory.value.find((row) => row.id === emergencyItemId.value)
+  if (!item || !emergencyQty.value || emergencyQty.value < 1) return
+  await queueOrRun('Emergency supplier request created', {
+    table: 'supplier_requests',
+    kind: 'insert',
+    payload: {
+      id: crypto.randomUUID(),
+      inventory_id: item.id,
+      item_name: item.name,
+      requested_quantity: emergencyQty.value,
+      priority: 'Emergency',
+      requested_by: profile.value!.id,
+      notes: emergencyNotes.value || null,
+    },
+  })
+  showEmergency.value = false
+  emergencyQty.value = null
+  emergencyNotes.value = ''
 }
 </script>

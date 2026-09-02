@@ -40,6 +40,7 @@
         <label>Embryos Transferred</label>
         <input v-model="embryosUsed" class="input" type="number" min="0" placeholder="e.g. 2" />
         <div v-if="storedCount !== null" class="hint">{{ storedCount }} embryo(s) currently in cryo storage for this patient.</div>
+        <label class="flex gap-8" style="margin-top:8px;font-size:12px;"><input v-model="deductFromCryo" type="checkbox" /> This was a frozen transfer — deduct from recorded cryo storage</label>
       </div>
       <div class="field"><label>Documentation — what was done / reason</label><textarea v-model="actionNotes" class="input" rows="4" placeholder="Document the clinical outcome or reason…" /></div>
       <template #footer>
@@ -50,7 +51,7 @@
 
     <Modal v-model="showDoc" :title="(activeItem?.type || '') + ' — ' + (activeItem?.status || '')">
       <p class="cell-muted" v-if="activeItem">{{ activeItem.patient_name }} · {{ fmtDate(activeItem.scheduled_date) }}</p>
-      <p v-if="activeItem?.embryos_used != null" class="cell-strong" style="margin-top:8px;">{{ activeItem.embryos_used }} embryo(s) transferred</p>
+      <p v-if="activeItem?.embryos_used != null" class="cell-strong" style="margin-top:8px;">{{ activeItem.embryos_used }} embryo(s) transferred{{ activeItem.used_from_cryo ? ' from cryo storage' : '' }}</p>
       <p style="font-size:13px; margin-top:10px; color:var(--text-700);">{{ activeItem?.notes || 'No documentation recorded.' }}</p>
       <p class="cell-muted" style="margin-top:10px;" v-if="activeItem">Documented by {{ activeItem.documented_by_name || '—' }} on {{ fmtDate(activeItem.documented_on) }}</p>
       <template #footer><button class="btn btn-secondary" @click="showDoc = false">Close</button></template>
@@ -64,12 +65,12 @@
 import { ref, computed } from 'vue'
 import { fmtDate } from '~/composables/useFormat'
 import { useSyncQueue } from '~/composables/useSyncQueue'
-import { useProfile } from '~/composables/useAuth'
+import { useToast } from '~/composables/useToast'
 
 const props = defineProps<{ role: string }>()
 const supabase = useSupabaseClient()
-const profile = useProfile()
 const { queueOrRun } = useSyncQueue()
+const { toast } = useToast()
 
 const range = ref<'day' | 'week' | 'month'>('week')
 const all = ref<any[]>([])
@@ -108,6 +109,7 @@ const actionNotes = ref('')
 const newDate = ref('')
 const embryosUsed = ref<number | string>('')
 const storedCount = ref<number | null>(null)
+const deductFromCryo = ref(false)
 
 const actionLabel = computed(() => (pendingAction.value === 'Done' ? 'Mark Done' : pendingAction.value === 'Postponed' ? 'Postpone' : 'Cancel'))
 const isTransferType = computed(() => (activeItem.value?.type || '').toLowerCase().includes('transfer'))
@@ -119,6 +121,7 @@ async function openAction(it: any, action: string) {
   newDate.value = it.scheduled_date
   embryosUsed.value = ''
   storedCount.value = null
+  deductFromCryo.value = false
   showAction.value = true
 
   if (action === 'Done' && (it.type || '').toLowerCase().includes('transfer')) {
@@ -138,20 +141,25 @@ async function submitAction() {
   const action = pendingAction.value
   const notes = actionNotes.value
   const rescheduleDate = newDate.value
-  const documentedBy = profile.value!.id
   const targetEmbryosUsed = action === 'Done' && isTransferType.value && embryosUsed.value !== '' ? Number(embryosUsed.value) : null
-  const patch: any = {
-    status: action,
-    notes,
-    documented_by: documentedBy,
-    documented_on: new Date().toISOString().slice(0, 10),
-  }
-  if (action === 'Postponed' && rescheduleDate) patch.scheduled_date = rescheduleDate
-  if (targetEmbryosUsed !== null) patch.embryos_used = targetEmbryosUsed
+  if (!notes.trim()) return toast('Clinical documentation is required', 'warn')
+  if (action === 'Done' && isTransferType.value && (!targetEmbryosUsed || targetEmbryosUsed < 1)) return toast('Enter the number of embryos transferred', 'warn')
+  if (deductFromCryo.value && targetEmbryosUsed! > (storedCount.value || 0)) return toast('Recorded cryo storage does not contain enough embryos', 'warn')
   await queueOrRun(
     `${it.type} for ${it.patient_name} marked ${action}`,
-    { table: 'transfer_cryo_schedule', kind: 'update', payload: patch, match: { id: it.id } },
-    () => { load() }
+    {
+      kind: 'rpc',
+      rpcName: 'document_transfer_cryo_event',
+      payload: {
+        p_event_id: it.id,
+        p_action: action,
+        p_notes: notes,
+        p_new_date: action === 'Postponed' ? rescheduleDate : null,
+        p_embryos_used: targetEmbryosUsed,
+        p_deduct_cryo: deductFromCryo.value,
+      },
+    },
+    () => { void load() },
   )
   showAction.value = false
 }

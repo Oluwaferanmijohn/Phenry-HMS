@@ -103,16 +103,16 @@ function closeCredentials() {
 }
 
 async function submit() {
-  if (!draft.first || !draft.last) {
+  if (!draft.first || !draft.last || !draft.dob) {
     step.value = 1
-    toast('First name and surname are required', 'warn')
+    toast('First name, surname, and date of birth are required', 'warn')
     return
   }
   submitting.value = true
   const { data, error } = await supabase.rpc('register_new_patient', {
     p_first: draft.first,
     p_last: draft.last,
-    p_dob: draft.dob || '1990-01-01',
+    p_dob: draft.dob,
     p_sex: draft.sex,
     p_phone: draft.phone,
     p_email: draft.email,
@@ -137,8 +137,9 @@ async function submit() {
   // just means Admin needs to set up their login separately, which is
   // surfaced clearly rather than silently losing that step.
   try {
-    await $fetch('/api/receptionist/create-patient-account', { method: 'POST', body: { patientId: mrn } })
-    portalCredentials.value = { patientId: mrn, password: draft.last.trim() }
+    const account = await $fetch<{ tempPassword?: string; alreadyExists?: boolean }>('/api/receptionist/create-patient-account', { method: 'POST', body: { patientId: mrn } })
+    if (account.tempPassword) portalCredentials.value = { patientId: mrn, password: account.tempPassword }
+    else toast(`${draft.first} ${draft.last} registered (${mrn}); the portal login already exists, so no password was changed.`, 'warn')
   } catch (e: any) {
     toast(`${draft.first} ${draft.last} registered (${mrn}), but the portal login could not be created — ask Admin to set it up.`, 'warn')
   }

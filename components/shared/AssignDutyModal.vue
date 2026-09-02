@@ -32,10 +32,11 @@ const shiftBlocks = [
   { key: 'morning', label: 'Morning Duty' },
   { key: 'afternoon', label: 'Afternoon Duty' },
   { key: 'night', label: 'Night Duty' },
-]
+] as const
+type ShiftKey = (typeof shiftBlocks)[number]['key']
 
 const nurses = ref<any[]>([])
-const duty = reactive<Record<string, string[]>>({ morning: [], afternoon: [], night: [] })
+const duty = reactive<Record<ShiftKey, string[]>>({ morning: [], afternoon: [], night: [] })
 const submitting = ref(false)
 
 watch(
@@ -54,7 +55,7 @@ watch(
   { immediate: true }
 )
 
-function toggle(shiftKey: string, name: string) {
+function toggle(shiftKey: ShiftKey, name: string) {
   const arr = duty[shiftKey]
   const i = arr.indexOf(name)
   if (i === -1) arr.push(name)

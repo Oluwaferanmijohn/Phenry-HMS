@@ -69,6 +69,45 @@
           <p class="cell-muted" style="margin-top:4px;">Dx: {{ c.diagnosis }}</p>
         </div>
       </div>
+      <template v-if="canReadImaging">
+        <hr class="hr" />
+        <b style="font-size:12.5px;"><Icon name="activity" :size="12" /> Imaging &amp; Ultrasound</b>
+        <div style="margin-top:8px; display:flex; flex-direction:column; gap:6px;">
+          <p v-if="imagingLoadError" style="font-size:12px; color:var(--red-600);">Imaging history could not be loaded. Other patient information is unaffected.</p>
+          <p v-else-if="!imagingStudies.length" class="muted" style="font-size:12px;">No finalized imaging reports on file yet.</p>
+          <div v-for="study in imagingStudies" :key="study.id" style="border-bottom:1px solid var(--border);">
+            <div class="list-row" style="padding:7px 0; cursor:pointer;" @click="toggleImaging(study.id)">
+              <div>
+                <div class="main-txt">{{ study.study_type }}</div>
+                <div class="sub-txt">{{ fmtDate(study.performed_at) }} · {{ study.approach || 'Approach not recorded' }} · {{ study.interpreted_by_name || study.performed_by_name || 'Clinician not recorded' }}</div>
+              </div>
+              <div class="flex gap-8" style="align-items:center;">
+                <StatusBadge :status="study.status" />
+                <Icon :name="expandedImaging.has(study.id) ? 'line' : 'plus'" :size="11" />
+              </div>
+            </div>
+            <div v-if="expandedImaging.has(study.id)" style="padding:0 0 12px;">
+              <div v-if="study.indication" class="imaging-block"><b>Clinical indication</b><p>{{ study.indication }}</p></div>
+              <div v-if="study.technique" class="imaging-block"><b>Technique</b><p>{{ study.technique }}</p></div>
+              <div v-for="section in imagingFindingSections(study)" :key="section.name" class="imaging-block">
+                <b>{{ section.name }}</b>
+                <table class="data-table" style="margin-top:5px;">
+                  <tbody>
+                    <tr v-for="row in section.rows" :key="row.key">
+                      <td class="cell-strong" style="width:42%;">{{ row.label }}</td>
+                      <td>{{ row.value }}<span v-if="row.unit"> {{ row.unit }}</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="imaging-block"><b>Impression</b><p>{{ study.impression || 'No impression recorded.' }}</p></div>
+              <div v-if="study.recommendations" class="imaging-block"><b>Recommendations / follow-up</b><p>{{ study.recommendations }}</p></div>
+              <div v-if="study.amendment_reason" class="imaging-block"><b>Reason for amendment</b><p>{{ study.amendment_reason }}</p></div>
+              <div v-if="study.image_reference" class="imaging-block"><b>Image / accession reference</b><p class="mono">{{ study.image_reference }}</p></div>
+            </div>
+          </div>
+        </div>
+      </template>
       <hr class="hr" />
       <b style="font-size:12.5px;"><Icon name="flask" :size="12" /> Past Tests</b>
       <div style="margin-top:8px; display:flex; flex-direction:column; gap:6px;">
@@ -108,6 +147,8 @@
 import { ref, watch, computed } from 'vue'
 import { fmtDate, computeAge } from '~/composables/useFormat'
 import { resolveCycleManagerNames } from '~/composables/useCycleManagerNames'
+import { useProfile } from '~/composables/useAuth'
+import { fetchImagingHistory, type ImagingStudy, type ImagingTemplateField } from '~/composables/useImagingWorkspace'
 
 const props = defineProps<{
   modelValue: boolean
@@ -135,6 +176,10 @@ function flaggedCount(result: any) {
 // look "assigned" on one screen and "Unassigned" on another. `cycle` only
 // needs the plain cycle_manager_id scalar (part of any `select('*')`).
 const supabase = useSupabaseClient()
+const profile = useProfile()
+const canReadImaging = computed(() => [
+  'admin_manager', 'doctor', 'matron', 'nurse', 'chief_embryologist', 'lab_tech',
+].includes(profile.value?.role || ''))
 const cycleManagerName = ref('')
 watch(
   () => props.cycle?.cycle_manager_id,
@@ -155,6 +200,9 @@ watch(
 const surgeries = ref<any[]>([])
 const transferCryoEvents = ref<any[]>([])
 const cryoStoredCount = ref(0)
+const imagingStudies = ref<ImagingStudy[]>([])
+const imagingLoadError = ref(false)
+const expandedImaging = ref<Set<string>>(new Set())
 watch(
   () => props.patient?.patient_id,
   async (patientId) => {
@@ -162,20 +210,73 @@ watch(
       surgeries.value = []
       transferCryoEvents.value = []
       cryoStoredCount.value = 0
+      imagingStudies.value = []
+      imagingLoadError.value = false
+      expandedImaging.value = new Set()
       return
     }
-    const [surgeryRes, transferRes, cryoRes] = await Promise.all([
+    imagingLoadError.value = false
+    expandedImaging.value = new Set()
+    const imagingPromise = canReadImaging.value
+      ? fetchImagingHistory(supabase, patientId).catch(() => {
+          imagingLoadError.value = true
+          return [] as ImagingStudy[]
+        })
+      : Promise.resolve([] as ImagingStudy[])
+    const [surgeryRes, transferRes, cryoRes, imagingRes] = await Promise.all([
       supabase.from('surgery_schedule').select('*').eq('patient_id', patientId).order('date', { ascending: false }),
       supabase.from('transfer_cryo_schedule').select('*').eq('patient_id', patientId).order('scheduled_date', { ascending: false }),
       supabase.from('cryo_records').select('straws').eq('patient_id', patientId).eq('asset_type', 'Embryo').eq('status', 'Stored'),
+      imagingPromise,
     ])
     surgeries.value = surgeryRes.data || []
     transferCryoEvents.value = transferRes.data || []
     cryoStoredCount.value = (cryoRes.data || []).reduce((sum: number, r: any) => sum + (r.straws || 0), 0)
+    imagingStudies.value = imagingRes
   },
   { immediate: true }
 )
 const embryosTransferredTotal = computed(() =>
   transferCryoEvents.value.filter((e) => e.status === 'Done' && e.embryos_used != null).reduce((sum, e) => sum + e.embryos_used, 0)
 )
+
+function toggleImaging(id: string) {
+  const next = new Set(expandedImaging.value)
+  next.has(id) ? next.delete(id) : next.add(id)
+  expandedImaging.value = next
+}
+
+function imagingFindingSections(study: ImagingStudy) {
+  const groups = new Map<string, ImagingTemplateField[]>()
+  for (const field of study.template_fields || []) {
+    if (isEmptyImagingFinding(study.findings?.[field.key])) continue
+    const group = groups.get(field.section) || []
+    group.push(field)
+    groups.set(field.section, group)
+  }
+  return [...groups.entries()].map(([name, fields]) => ({
+    name,
+    rows: fields.map(field => ({
+      key: field.key,
+      label: field.label,
+      unit: field.unit,
+      value: formatImagingFinding(study.findings[field.key]),
+    })),
+  }))
+}
+
+function isEmptyImagingFinding(value: unknown) {
+  return value === undefined || value === null || value === ''
+}
+
+function formatImagingFinding(value: string | number | boolean | null | undefined) {
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  return value == null || value === '' ? '—' : String(value)
+}
 </script>
+
+<style scoped>
+.imaging-block { margin-top:10px; }
+.imaging-block > b { font-size:11.5px; }
+.imaging-block > p { margin-top:4px; white-space:pre-wrap; font-size:12px; color:var(--text-700); }
+</style>

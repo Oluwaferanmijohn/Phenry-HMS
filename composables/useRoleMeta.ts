@@ -16,6 +16,10 @@ export interface RoleMeta {
 // whole even though only the `patient` role's pages exist so far. Each
 // role's actual page components are still built one role at a time.
 export const ROLE_META: Record<string, RoleMeta> = {
+  custom: {
+    label: 'Custom Role', subtitle: 'Permission-based Workspace', icon: 'shield',
+    nav: [{ id: '', label: 'Workspace', icon: 'grid' }],
+  },
   patient: {
     label: 'Patient', subtitle: 'Companion App', icon: 'home',
     nav: [
@@ -156,6 +160,13 @@ export const ROLE_ORDER = [
 // the caller is already authenticated, so /login just bounces them forward
 // through this same function again.
 export function roleHomePath(role: string) {
+  if (role === 'custom') return '/custom'
   const meta = ROLE_META[role]
-  return meta ? `/${role}/${meta.nav[0].id}` : '/no-access'
+  const firstItem = meta?.nav[0]
+  return firstItem ? `/${role}/${firstItem.id}` : '/no-access'
+}
+
+export function profileHomePath(profile: { role?: string | null; custom_role_key?: string | null }) {
+  if (profile.role) return roleHomePath(profile.role)
+  return profile.custom_role_key ? '/custom' : '/no-access'
 }

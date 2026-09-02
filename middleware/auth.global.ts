@@ -1,5 +1,5 @@
-import { loadProfile, useProfile } from '~/composables/useAuth'
-import { roleHomePath } from '~/composables/useRoleMeta'
+import { forceSignOut, loadProfile, useProfile } from '~/composables/useAuth'
+import { profileHomePath, roleHomePath } from '~/composables/useRoleMeta'
 
 const PUBLIC_ROUTES = new Set(['/login'])
 
@@ -15,7 +15,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
   // Don't leave a stranded login screen once authenticated.
   if (PUBLIC_ROUTES.has(to.path)) {
     if (!profile.value || profile.value.id !== user.value.id) await loadProfile()
-    return navigateTo(profile.value ? roleHomePath(profile.value.role ?? '') : '/login')
+    return navigateTo(profile.value ? profileHomePath(profile.value) : '/login')
   }
 
   if (!profile.value || profile.value.id !== user.value.id) {
@@ -25,23 +25,11 @@ export default defineNuxtRouteMiddleware(async (to) => {
   // Revoked staff accounts must actually be blocked, not just show a
   // grayed-out row in Admin's Staff table.
   if (profile.value && profile.value.active === false) {
-    const supabase = useSupabaseClient()
-    await supabase.auth.signOut()
-    profile.value = null
-    return navigateTo('/login?revoked=1')
+    return forceSignOut('revoked')
   }
 
-  // No role assigned at all (account provisioned but not configured yet),
-  // OR a custom role with no built UI: the permissions DATA MODEL
-  // (custom_roles/role_permissions) is fully built and enforced by RLS, but
-  // neither the prototype nor the spec describes what an arbitrary custom
-  // role's actual SCREENS should look like — that's a real product
-  // decision, not a gap to paper over with an invented generic UI. Both
-  // cases land on /no-access, which shows the right message for each.
-  if (!profile.value?.role) {
-    if (to.path !== '/no-access') return navigateTo('/no-access')
-    return
-  }
+  const current = profile.value
+  if (!current) return navigateTo('/no-access')
 
   // Forced password reset gate (Bible §6.2 / spec §3.1) — applies to every
   // role, not just Patient. Staff created via create-staff.post.ts get the
@@ -50,22 +38,32 @@ export default defineNuxtRouteMiddleware(async (to) => {
   // check here has to be role-agnostic or staff keep their temp password
   // forever. reset-password.vue is already written role-agnostically and
   // redirects back to roleHomePath() when done, so no other change needed.
-  if (profile.value.force_password_reset) {
+  if (current.force_password_reset) {
     if (to.path !== '/reset-password') return navigateTo('/reset-password')
     return
   }
-  if (to.path === '/reset-password' && !profile.value.force_password_reset) {
-    return navigateTo(roleHomePath(profile.value.role))
+  if (to.path === '/reset-password' && !current.force_password_reset) {
+    return navigateTo(profileHomePath(current))
+  }
+
+  if (!current.role && !current.custom_role_key) {
+    if (to.path !== '/no-access') return navigateTo('/no-access')
+    return
+  }
+
+  if (current.custom_role_key) {
+    if (!to.path.startsWith('/custom')) return navigateTo('/custom')
+    return
   }
 
   if (to.path === '/') {
-    return navigateTo(roleHomePath(profile.value.role))
+    return navigateTo(roleHomePath(current.role!))
   }
 
   // Keep a logged-in user inside their own role's routes — RLS would block
   // the data anyway, but redirecting avoids a confusing all-empty screen.
   const routeRole = to.path.split('/')[1]
-  if (routeRole && routeRole !== profile.value.role && !['reset-password', 'no-access'].includes(routeRole)) {
-    return navigateTo(roleHomePath(profile.value.role))
+  if (routeRole && routeRole !== current.role && !['reset-password', 'no-access'].includes(routeRole)) {
+    return navigateTo(roleHomePath(current.role!))
   }
 })

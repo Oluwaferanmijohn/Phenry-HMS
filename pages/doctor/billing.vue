@@ -1,9 +1,26 @@
 <template>
-  <div v-if="patient">
+  <div v-if="billingStatus === 'pending' || loadingPatient">
+    <div class="page-header"><div><h1>Payment Plan Generator</h1><div class="desc">Loading accessible patient information…</div></div></div>
+    <div class="card card-pad"><div class="cell-muted">Loading payment-plan workspace…</div></div>
+  </div>
+  <div v-else-if="billingError || patientLoadError">
+    <div class="page-header"><div><h1>Payment Plan Generator</h1><div class="desc">The workspace could not be opened.</div></div></div>
+    <div class="card card-pad">
+      <EmptyState icon="alert" title="Payment-plan data could not be loaded" description="A temporary connection or permission error prevented the patient context from loading." />
+      <div style="margin-top:12px; text-align:center;"><button class="btn btn-secondary btn-sm" @click="retryBilling">Try Again</button></div>
+    </div>
+  </div>
+  <div v-else-if="!patient">
+    <div class="page-header"><div><h1>Payment Plan Generator</h1><div class="desc">Select an accessible patient to continue.</div></div></div>
+    <div class="card card-pad">
+      <EmptyState icon="user" title="No accessible patients" description="No patient is currently assigned to this doctor or present in today’s permitted waiting-room scope." />
+    </div>
+  </div>
+  <div v-else>
     <div class="page-header">
       <div><h1>Payment Plan Generator</h1><div class="desc">{{ patient.full_name }} · {{ patient.patient_id }}</div></div>
       <div class="page-actions">
-        <select class="input" :value="patient.patient_id" @change="loadPatient(($event.target as HTMLSelectElement).value)">
+        <select class="input" :value="patient.patient_id" @change="switchPatient(($event.target as HTMLSelectElement).value)">
           <option v-for="p in patients" :key="p.patient_id" :value="p.patient_id">{{ p.full_name }}</option>
         </select>
       </div>
@@ -41,10 +58,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { fmtNaira } from '~/composables/useFormat'
 import { useToast } from '~/composables/useToast'
 import { useSyncQueue } from '~/composables/useSyncQueue'
+import { useProfile } from '~/composables/useAuth'
+import { fetchClinicalPatientDirectory } from '~/composables/useClinicalPatientAccess'
 
 const PACKAGE_COST: Record<string, number> = {
   'ICSI Cycle': 4_500_000,
@@ -56,6 +75,9 @@ const PACKAGE_COST: Record<string, number> = {
 const supabase = useSupabaseClient()
 const { toast } = useToast()
 const { queueOrRun } = useSyncQueue()
+const profile = useProfile()
+const route = useRoute()
+const router = useRouter()
 
 const patients = ref<any[]>([])
 const patient = ref<any>(null)
@@ -66,61 +88,106 @@ const milestones = ref([
   { id: 3, label: 'Before Transfer', amount: 0 },
 ])
 const submitting = ref(false)
+const loadingPatient = ref(false)
+const patientLoadError = ref('')
 
 const total = computed(() => milestones.value.reduce((s, m) => s + Number(m.amount || 0), 0))
 const remaining = computed(() => (PACKAGE_COST[billPackage.value] || 0) - total.value)
 
 async function loadPatient(patientId: string) {
-  const { data } = await supabase.from('bio_details').select('*, patient_names(full_name)').eq('patient_id', patientId).single()
-  patient.value = data ? { ...data, full_name: data.patient_names?.full_name } : null
+  const selected = patients.value.find((entry) => entry.patient_id === patientId)
+  if (!selected) return
+  loadingPatient.value = true
+  patientLoadError.value = ''
+  try {
+    patient.value = selected
+  } catch {
+    patient.value = null
+    patientLoadError.value = 'Patient billing context could not be loaded.'
+  } finally {
+    loadingPatient.value = false
+  }
 }
 
-await useAsyncData('doctor-billing-init', async () => {
-  const route = useRoute()
-  const { data } = await supabase.from('patient_names').select('patient_id, full_name').order('full_name', { ascending: true })
-  patients.value = data || []
-  const startId = (route.query.patient as string) || patients.value[0]?.patient_id
-  if (startId) await loadPatient(startId)
-  return true
+interface BillingPayload {
+  patients: any[]
+  patient: any | null
+}
+
+const billingKey = `doctor-billing-${profile.value?.id || 'anonymous'}`
+const {
+  data: billingData,
+  error: billingError,
+  status: billingStatus,
+  refresh: refreshBilling,
+} = await useAsyncData<BillingPayload>(billingKey, async () => {
+  const directoryPayload = await fetchClinicalPatientDirectory(supabase)
+  const directory = directoryPayload.patients
+  const requestedPatientId = typeof route.query.patient === 'string' ? route.query.patient : ''
+  const startId = directory.some((entry) => entry.patient_id === requestedPatientId)
+    ? requestedPatientId
+    : directory[0]?.patient_id
+  if (!startId) return { patients: directory, patient: null }
+  return {
+    patients: directory,
+    patient: directory.find((entry) => entry.patient_id === startId) || null,
+  }
+}, {
+  default: () => ({ patients: [], patient: null }),
+  getCachedData: (key, nuxtApp) => nuxtApp.isHydrating ? nuxtApp.payload.data[key] : undefined,
 })
+
+function applyBillingData(payload: BillingPayload | null | undefined) {
+  patients.value = payload?.patients || []
+  patient.value = payload?.patient || null
+}
+
+watch(billingData, applyBillingData, { immediate: true })
+
+async function retryBilling() {
+  patientLoadError.value = ''
+  await refreshBilling()
+  applyBillingData(billingData.value)
+}
+
+async function switchPatient(patientId: string) {
+  await router.replace({ query: { ...route.query, patient: patientId } })
+  await loadPatient(patientId)
+}
 
 async function generate() {
   if (!billPackage.value) return toast('Choose a treatment package first', 'warn')
   if (!patient.value) return
+  if (!milestones.value.length || milestones.value.some((milestone) => !milestone.label.trim() || Number(milestone.amount) <= 0)) {
+    return toast('Every installment needs a label and an amount greater than zero', 'warn')
+  }
+  if (Math.abs(remaining.value) > 0.005) {
+    return toast('Installments must add up exactly to the treatment package cost', 'warn')
+  }
   submitting.value = true
 
   const targetPatientId = patient.value.patient_id
   const targetPatientName = patient.value.full_name
   const targetPackage = billPackage.value
-  const targetTotal = total.value
+  const targetTotal = PACKAGE_COST[targetPackage]
   const targetMilestones = milestones.value.map((m) => ({ label: m.label, amount: Number(m.amount || 0) }))
 
-  await queueOrRun(`Payment plan sent to ${targetPatientName}`, async () => {
-    const { data: existing } = await supabase.from('payment_plans').select('id').eq('patient_id', targetPatientId).limit(1).maybeSingle()
-
-    let planId = existing?.id
-    if (existing) {
-      await supabase.from('payment_plans').update({ package: targetPackage, total_cost: targetTotal }).eq('id', existing.id)
-      await supabase.from('payment_milestones').delete().eq('plan_id', existing.id)
-    } else {
-      const { data: created, error } = await supabase
-        .from('payment_plans')
-        .insert({ patient_id: targetPatientId, package: targetPackage, total_cost: targetTotal })
-        .select()
-        .single()
-      if (error) throw error
-      planId = created.id
-    }
-
-    const { error: milestonesError } = await supabase.from('payment_milestones').insert(
-      targetMilestones.map((m) => ({ plan_id: planId, label: m.label, amount: m.amount, status: 'Upcoming', due_context: 'Scheduled' }))
-    )
-    if (milestonesError) throw milestonesError
-  })
-
-  submitting.value = false
-  milestones.value = []
-  billPackage.value = ''
-  await navigateTo('/doctor/waiting')
+  try {
+    await queueOrRun(`Payment plan sent to ${targetPatientName}`, {
+      kind: 'rpc',
+      rpcName: 'save_payment_plan',
+      payload: {
+        p_patient_id: targetPatientId,
+        p_package: targetPackage,
+        p_total: targetTotal,
+        p_milestones: targetMilestones,
+      },
+    })
+    milestones.value = []
+    billPackage.value = ''
+    await navigateTo('/doctor/waiting')
+  } finally {
+    submitting.value = false
+  }
 }
 </script>

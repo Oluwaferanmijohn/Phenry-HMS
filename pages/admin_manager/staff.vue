@@ -56,13 +56,16 @@ const permEditRole = ref<any>(null)
 
 async function load() {
   const [staffRes, rolesRes] = await Promise.all([
-    supabase.from('profiles').select('*').not('role', 'is', null).neq('role', 'patient').order('created_at', { ascending: false }),
+    supabase.from('profiles').select('*, staff_contacts(email, phone)').not('role', 'is', null).neq('role', 'patient').order('created_at', { ascending: false }),
     supabase.from('custom_roles').select('*').order('label', { ascending: true }),
   ])
   // profiles with a custom_role_key (role is null) also need to show — the
   // first query's `role is not null` filter excludes them, so fetch those too.
-  const { data: customStaff } = await supabase.from('profiles').select('*').not('custom_role_key', 'is', null)
-  staff.value = [...(staffRes.data || []), ...(customStaff || [])]
+  const { data: customStaff } = await supabase.from('profiles').select('*, staff_contacts(email, phone)').not('custom_role_key', 'is', null)
+  staff.value = [...(staffRes.data || []), ...(customStaff || [])].map((row: any) => {
+    const contact = Array.isArray(row.staff_contacts) ? row.staff_contacts[0] : row.staff_contacts
+    return { ...row, email: contact?.email || '', phone: contact?.phone || '' }
+  })
   customRoles.value = rolesRes.data || []
 }
 await useAsyncData('admin-staff', load)
@@ -86,20 +89,22 @@ function editPermissions(r: any) {
 }
 
 async function toggleActive(s: any) {
-  const { error } = await supabase.from('profiles').update({ active: !s.active }).eq('id', s.id)
-  if (error) {
-    toast('Could not update access', 'warn')
-    return
+  try {
+    await $fetch('/api/admin/update-staff', {
+      method: 'POST',
+      body: {
+        profileId: s.id,
+        fullName: s.full_name,
+        phone: s.phone,
+        role: s.role,
+        customRoleKey: s.custom_role_key,
+        active: !s.active,
+      },
+    })
+    s.active = !s.active
+    toast(`${s.full_name}'s access ${s.active ? 'reinstated' : 'revoked'}`, s.active ? 'success' : 'warn')
+  } catch (e: any) {
+    toast(e?.data?.statusMessage || e?.statusMessage || 'Could not update access', 'warn')
   }
-  const wasActive = s.active
-  s.active = !s.active
-  // The middleware comment this fixes: the block was already enforced, the
-  // event itself just wasn't recorded anywhere. log_audit_event() is safe
-  // to call directly here — it only ever logs the caller's own identity.
-  await supabase.rpc('log_audit_event', {
-    p_action_type: wasActive ? 'Revoked Staff Access' : 'Reinstated Staff Access',
-    p_target: s.full_name,
-  })
-  toast(`${s.full_name}'s access ${s.active ? 'reinstated' : 'revoked'}`, s.active ? 'success' : 'warn')
 }
 </script>

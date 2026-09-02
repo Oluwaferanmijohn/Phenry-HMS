@@ -24,7 +24,7 @@
     </div>
     <template #footer>
       <button class="btn btn-secondary" @click="$emit('update:modelValue', false)">Cancel</button>
-      <button class="btn btn-primary" :disabled="!patientId || submitting" @click="submit"><Icon name="upload" :size="13" /> Upload &amp; Secure Document</button>
+      <button class="btn btn-primary" :disabled="!patientId || !chosenFile || !title.trim() || submitting" @click="submit"><Icon name="upload" :size="13" /> Upload &amp; Secure Document</button>
     </template>
   </Modal>
 </template>
@@ -67,11 +67,19 @@ watch(
 )
 
 function onFile(e: Event) {
-  chosenFile.value = (e.target as HTMLInputElement).files?.[0] || null
+  const file = (e.target as HTMLInputElement).files?.[0] || null
+  const allowed = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
+  if (file && (!allowed.has(file.type) || file.size > 10 * 1024 * 1024)) {
+    chosenFile.value = null
+    ;(e.target as HTMLInputElement).value = ''
+    toast('Choose a PDF, JPEG, PNG, or WebP file no larger than 10 MB', 'warn')
+    return
+  }
+  chosenFile.value = file
 }
 
 async function submit() {
-  if (!patientId.value) return
+  if (!patientId.value || !chosenFile.value || !title.value.trim()) return
 
   // File uploads can't go through the offline write-queue — a File object
   // isn't something we can reliably persist and replay after the app
@@ -89,28 +97,29 @@ async function submit() {
   const targetFile = chosenFile.value
   const enteredByProfileId = profile.value!.id
 
-  await queueOrRun(`"${targetTitle}" attached to patient file`, async () => {
-    let externalFileUrl: string | null = null
-    if (targetFile) {
-      const path = `${targetPatientId}/${Date.now()}-${targetFile.name}`
-      const { error: upErr } = await supabase.storage.from('lab-external-results').upload(path, targetFile)
-      if (upErr) throw upErr
-      externalFileUrl = path
-    }
-
-    const { error } = await supabase.from('lab_results').insert({
-      patient_id: targetPatientId,
-      entered_by_profile_id: enteredByProfileId,
-      collected_on: targetDate,
-      title: targetTitle,
-      external: true,
-      external_file_url: externalFileUrl,
+  try {
+    await queueOrRun(`"${targetTitle}" attached to patient file`, async () => {
+      const safeName = targetFile!.name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-120)
+      const path = `${targetPatientId}/${crypto.randomUUID()}-${safeName}`
+      const { error: uploadError } = await supabase.storage.from('lab-external-results').upload(path, targetFile!, { contentType: targetFile!.type, upsert: false })
+      if (uploadError) throw uploadError
+      const { error } = await supabase.from('lab_results').insert({
+        patient_id: targetPatientId,
+        entered_by_profile_id: enteredByProfileId,
+        collected_on: targetDate,
+        title: targetTitle,
+        external: true,
+        external_file_url: path,
+      })
+      if (error) {
+        await supabase.storage.from('lab-external-results').remove([path])
+        throw error
+      }
     })
-    if (error) throw error
-  })
-
-  submitting.value = false
-  emit('uploaded')
-  emit('update:modelValue', false)
+    emit('uploaded')
+    emit('update:modelValue', false)
+  } finally {
+    submitting.value = false
+  }
 }
 </script>

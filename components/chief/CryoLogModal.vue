@@ -27,13 +27,11 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useSyncQueue } from '~/composables/useSyncQueue'
-import { useProfile } from '~/composables/useAuth'
 
 const props = defineProps<{ modelValue: boolean; tanks: any[] }>()
 const emit = defineEmits<{ 'update:modelValue': [boolean]; logged: [] }>()
 
 const supabase = useSupabaseClient()
-const profile = useProfile()
 const { queueOrRun } = useSyncQueue()
 
 const patients = ref<any[]>([])
@@ -68,28 +66,25 @@ async function submit() {
   const targetCanister = canister.value
   const targetPosition = position.value
   const targetNotes = notes.value
-  const loggedBy = profile.value!.id
-  const targetTank = targetTankId ? props.tanks.find((t) => t.id === targetTankId) : null
-  await queueOrRun('Cryo record logged', [
-    {
-      table: 'cryo_records',
-      kind: 'insert',
+  try {
+    await queueOrRun('Cryo record logged', {
+      kind: 'rpc',
+      rpcName: 'log_cryo_record',
       payload: {
-        patient_id: targetPatientId,
-        asset_type: targetAssetType,
-        straws: targetStraws,
-        freezing_date: targetFreezingDate,
-        tank_id: targetTankId,
-        canister: targetCanister,
-        position: targetPosition,
-        notes: targetNotes,
-        logged_by: loggedBy,
+        p_patient_id: targetPatientId,
+        p_asset_type: targetAssetType,
+        p_straws: targetStraws,
+        p_freezing_date: targetFreezingDate,
+        p_tank_id: targetTankId,
+        p_canister: targetCanister,
+        p_position: targetPosition,
+        p_notes: targetNotes,
       },
-    },
-    ...(targetTank ? [{ table: 'cryo_tanks', kind: 'update' as const, payload: { used: targetTank.used + targetStraws }, match: { id: targetTankId } }] : []),
-  ])
-  submitting.value = false
-  emit('logged')
-  emit('update:modelValue', false)
+    })
+    emit('logged')
+    emit('update:modelValue', false)
+  } finally {
+    submitting.value = false
+  }
 }
 </script>

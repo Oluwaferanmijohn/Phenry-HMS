@@ -8,22 +8,25 @@ import { useSyncQueue } from '~/composables/useSyncQueue'
 // patient in the system (see useOfflineDb.ts for why).
 export function useRecentPatientCache() {
   const { online } = useSyncQueue()
+  const user = useSupabaseUser()
 
   async function loadWithCache<T>(patientId: string, fetcher: () => Promise<T>): Promise<{ data: T | null; fromCache: boolean }> {
+    const userId = user.value?.id
+    if (!userId) return { data: null, fromCache: false }
     if (online.value) {
       try {
         const data = await fetcher()
-        if (data) cachePatientSnapshot(patientId, data)
+        if (data) await cachePatientSnapshot(userId, patientId, data)
         return { data, fromCache: false }
       } catch (err) {
         // A fetch can fail because connectivity just dropped mid-request —
         // fall back to cache rather than surfacing a blank screen.
-        const cached = await getCachedPatientSnapshot<T>(patientId)
+        const cached = await getCachedPatientSnapshot<T>(userId, patientId)
         if (cached) return { data: cached, fromCache: true }
         throw err
       }
     }
-    const cached = await getCachedPatientSnapshot<T>(patientId)
+    const cached = await getCachedPatientSnapshot<T>(userId, patientId)
     return { data: cached, fromCache: true }
   }
 

@@ -6,10 +6,12 @@
         <div class="card-header"><h3><Icon name="building" :size="15" /> Company Profile</h3></div>
         <div class="card-body">
           <div class="flex gap-14" style="align-items:center; margin-bottom:16px;">
-            <div style="width:60px;height:60px;border-radius:14px;background:var(--blue-50);color:var(--blue-600);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800; flex-shrink:0;">{{ (cs.clinic_name || 'P')[0] }}</div>
+            <img v-if="logoUrl" :src="logoUrl" alt="Clinic logo" style="width:60px;height:60px;border-radius:14px;object-fit:contain;background:white;border:1px solid var(--border);" />
+            <div v-else style="width:60px;height:60px;border-radius:14px;background:var(--blue-50);color:var(--blue-600);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800; flex-shrink:0;">{{ (cs.clinic_name || 'P')[0] }}</div>
             <div>
-              <button class="btn btn-secondary btn-sm" @click="toast('Logo upload isn\'t wired up yet — ask for it if you need it')"><Icon name="upload" :size="12" /> Upload Logo</button>
-              <div class="hint">PNG or SVG, at least 256×256px.</div>
+              <input ref="logoInput" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="uploadLogo" />
+              <button class="btn btn-secondary btn-sm" :disabled="uploadingLogo" @click="logoInput?.click()"><Icon name="upload" :size="12" /> {{ uploadingLogo ? 'Uploading…' : 'Upload Logo' }}</button>
+              <div class="hint">PNG, JPEG, or WebP; maximum 2 MB.</div>
             </div>
           </div>
           <div class="field"><label>Clinic Name</label><input v-model="cs.clinic_name" class="input" /><div class="hint">Shown to patients throughout the portal and on printed documents.</div></div>
@@ -78,7 +80,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useToast } from '~/composables/useToast'
 
 const supabase = useSupabaseClient()
@@ -87,13 +89,54 @@ const { toast } = useToast()
 const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const cs = ref<any>(null)
 const saving = ref(false)
+const uploadingLogo = ref(false)
+const logoInput = ref<HTMLInputElement | null>(null)
 const lastSavedLabel = ref('Not saved this session')
+const logoUrl = computed(() => {
+  const path = cs.value?.logo_url
+  if (!path) return ''
+  if (/^https?:\/\//i.test(path)) return path
+  return supabase.storage.from('clinic-assets').getPublicUrl(path).data.publicUrl
+})
 
 async function reload() {
   const { data } = await supabase.from('clinic_settings').select('*').eq('id', 1).single()
   cs.value = data
 }
 await useAsyncData('admin-settings', reload)
+
+async function uploadLogo(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  const allowed = new Set(['image/png', 'image/jpeg', 'image/webp'])
+  if (!allowed.has(file.type) || file.size > 2 * 1024 * 1024) {
+    toast('Use a PNG, JPEG, or WebP image no larger than 2 MB', 'warn')
+    return
+  }
+
+  uploadingLogo.value = true
+  const extension = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'
+  const path = `branding/${crypto.randomUUID()}.${extension}`
+  const oldPath = cs.value?.logo_url as string | undefined
+  try {
+    const { error: uploadError } = await supabase.storage.from('clinic-assets').upload(path, file, { contentType: file.type, upsert: false })
+    if (uploadError) throw uploadError
+    const { error: updateError } = await supabase.from('clinic_settings').update({ logo_url: path }).eq('id', 1)
+    if (updateError) {
+      await supabase.storage.from('clinic-assets').remove([path])
+      throw updateError
+    }
+    cs.value.logo_url = path
+    if (oldPath && oldPath !== path && !/^https?:\/\//i.test(oldPath)) await supabase.storage.from('clinic-assets').remove([oldPath])
+    toast('Clinic logo updated', 'success')
+  } catch {
+    toast('Could not upload the logo — please try again', 'warn')
+  } finally {
+    uploadingLogo.value = false
+  }
+}
 
 async function save() {
   saving.value = true

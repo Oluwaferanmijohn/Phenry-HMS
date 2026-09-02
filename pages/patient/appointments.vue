@@ -129,24 +129,22 @@ async function confirmBooking() {
   const time = bookingTime.value
   const providerId = assignedDoctorId.value
 
-  await queueOrRun('Appointment request sent to the clinic', async () => {
-    const { data: inserted, error } = await supabase
-      .from('appointments')
-      .insert({
-        patient_id: patientId,
-        provider_role: 'doctor',
-        provider_profile_id: providerId,
-        type: 'Patient-Requested Visit',
-        date,
-        time,
-        duration: 30,
-        status: 'Scheduled',
-      })
-      .select()
-      .single()
-    if (error) throw error
-    upcoming.value = [...upcoming.value, inserted].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
-  })
+  const appointment = {
+    id: crypto.randomUUID(),
+    patient_id: patientId,
+    provider_role: 'doctor',
+    provider_profile_id: providerId,
+    type: 'Patient-Requested Visit',
+    date,
+    time,
+    duration: 30,
+    status: 'Scheduled',
+  }
+  await queueOrRun(
+    'Appointment request sent to the clinic',
+    { table: 'appointments', kind: 'insert', payload: appointment },
+    () => { upcoming.value = [...upcoming.value, appointment].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)) },
+  )
 
   bookingDay.value = null
   bookingTime.value = null

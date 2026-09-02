@@ -42,7 +42,28 @@ export async function loadProfile() {
 
 export async function signOut() {
   const supabase = useSupabaseClient()
+  const user = useSupabaseUser()
+  const userId = user.value?.id
+  const { pendingCount, flushQueue, clearUserState } = useSyncQueue()
+
+  if (pendingCount.value > 0 && navigator.onLine) await flushQueue()
+  if (
+    pendingCount.value > 0
+    && !window.confirm(`${pendingCount.value} offline change${pendingCount.value === 1 ? '' : 's'} will be discarded. Sign out anyway?`)
+  ) return false
+
   await supabase.auth.signOut()
+  if (userId) await clearUserState(userId)
   useProfile().value = null
   await navigateTo('/login')
+  return true
+}
+
+export async function forceSignOut(reason = 'revoked') {
+  const supabase = useSupabaseClient()
+  const userId = useSupabaseUser().value?.id
+  if (userId) await useSyncQueue().clearUserState(userId)
+  await supabase.auth.signOut()
+  useProfile().value = null
+  await navigateTo(`/login?${encodeURIComponent(reason)}=1`)
 }

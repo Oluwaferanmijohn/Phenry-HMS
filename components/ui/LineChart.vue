@@ -14,10 +14,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, getCurrentInstance } from 'vue'
 
 const props = withDefaults(defineProps<{ data: { m: string; v: number }[]; w?: number; h?: number }>(), { w: 560, h: 180 })
-const gradId = `areaGrad-${Math.random().toString(36).slice(2, 9)}`
+const gradId = `areaGrad-${getCurrentInstance()?.uid ?? 'chart'}`
 
 const max = computed(() => Math.max(...props.data.map((d) => d.v), 1) * 1.15)
 const stepX = computed(() => props.w / Math.max(1, props.data.length - 1))

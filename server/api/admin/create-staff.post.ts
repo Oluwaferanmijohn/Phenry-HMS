@@ -12,23 +12,20 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { generateTemporaryPassword } from '~/server/utils/temporaryPassword'
 
-function generateTempPassword() {
-  // 10 chars, alphanumeric, easy to read aloud/type — avoids ambiguous
-  // characters (0/O, 1/l/I) since this gets communicated verbally or via
-  // WhatsApp to a new hire.
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
-  let out = ''
-  for (let i = 0; i < 10; i++) out += chars[Math.floor(Math.random() * chars.length)]
-  return out
-}
+const FIXED_STAFF_ROLES = new Set(['receptionist', 'admin_manager', 'doctor', 'matron', 'nurse', 'chief_embryologist', 'lab_tech', 'pharmacy', 'stakeholder'])
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ fullName: string; email: string; role?: string; customRoleKey?: string }>(event)
+  const body = await readBody<{ fullName: string; email: string; phone?: string; role?: string; customRoleKey?: string }>(event)
+  const fullName = body?.fullName?.trim()
+  const email = body?.email?.trim().toLowerCase()
+  const phone = body?.phone?.trim() || null
 
-  if (!body?.fullName || !body?.email || (!body.role && !body.customRoleKey)) {
+  if (!fullName || fullName.length > 120 || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || (!body.role && !body.customRoleKey)) {
     throw createError({ statusCode: 400, statusMessage: 'fullName, email, and role (or customRoleKey) are required' })
   }
+  if (body.role && !FIXED_STAFF_ROLES.has(body.role)) throw createError({ statusCode: 400, statusMessage: 'Invalid staff role' })
 
   // Verify the caller is actually an authenticated Admin — server-side,
   // using their own session, before we touch the service-role client.
@@ -36,37 +33,52 @@ export default defineEventHandler(async (event) => {
   const caller = await serverSupabaseUser(event)
   if (!caller) throw createError({ statusCode: 401, statusMessage: 'Not authenticated' })
 
-  const { data: callerProfile } = await userClient.from('profiles').select('role, full_name').eq('id', caller.id).single()
-  if (callerProfile?.role !== 'admin_manager') {
+  const { data: callerProfile } = await userClient.from('profiles').select('role, full_name, active').eq('id', caller.id).single()
+  if (callerProfile?.role !== 'admin_manager' || !callerProfile.active) {
     throw createError({ statusCode: 403, statusMessage: 'Only Admin Manager can create staff accounts' })
   }
 
   const config = useRuntimeConfig()
+  if (!config.supabaseServiceRoleKey) throw createError({ statusCode: 500, statusMessage: 'Server account provisioning is not configured' })
   const admin = createClient(config.public.supabaseUrl as string, config.supabaseServiceRoleKey as string, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
 
-  const tempPassword = generateTempPassword()
+  if (body.customRoleKey) {
+    const { data: customRole } = await admin.from('custom_roles').select('role_key').eq('role_key', body.customRoleKey).maybeSingle()
+    if (!customRole) throw createError({ statusCode: 400, statusMessage: 'Custom role does not exist' })
+  }
+
+  const tempPassword = generateTemporaryPassword()
 
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
-    email: body.email,
+    email,
     password: tempPassword,
     email_confirm: true,
     user_metadata: {
-      full_name: body.fullName,
+      full_name: fullName,
       role: body.role ?? null,
+      custom_role_key: body.customRoleKey ?? null,
       force_password_reset: true,
     },
   })
 
   if (createErr || !created?.user) {
-    throw createError({ statusCode: 500, statusMessage: createErr?.message || 'Could not create the staff account' })
+    const duplicate = createErr?.message?.toLowerCase().includes('already')
+    throw createError({ statusCode: duplicate ? 409 : 500, statusMessage: createErr?.message || 'Could not create the staff account' })
   }
 
-  // handle_new_user() already created the profiles row from user_metadata;
-  // if this is a custom role, patch it in (the trigger only knows `role`).
-  if (body.customRoleKey) {
-    await admin.from('profiles').update({ role: null, custom_role_key: body.customRoleKey }).eq('id', created.user.id)
+  const { error: profileError } = await admin.from('profiles').update({
+    full_name: fullName,
+    role: body.customRoleKey ? null : body.role,
+    custom_role_key: body.customRoleKey || null,
+    force_password_reset: true,
+    active: true,
+  }).eq('id', created.user.id)
+  const { error: contactError } = await admin.from('staff_contacts').upsert({ profile_id: created.user.id, email, phone })
+  if (profileError || contactError) {
+    await admin.auth.admin.deleteUser(created.user.id)
+    throw createError({ statusCode: 500, statusMessage: 'Account setup failed and was rolled back' })
   }
 
   await admin.from('audit_log').insert({
@@ -74,7 +86,7 @@ export default defineEventHandler(async (event) => {
     staff_name: callerProfile?.full_name || caller.email || 'Admin',
     role: 'admin_manager',
     action_type: 'Created Staff Account',
-    target: body.email,
+    target: email,
   })
 
   return { userId: created.user.id, tempPassword }

@@ -6,7 +6,10 @@
         <div class="flex-between"><b style="font-size:14px;">{{ b.id }}</b><StatusBadge :status="b.status" /></div>
         <p class="cell-muted" style="margin-top:8px;">{{ bedDescription(b) }}</p>
         <button v-if="b.status === 'Occupied'" class="btn btn-secondary btn-sm btn-block" style="margin-top:10px;" @click="clear(b)"><Icon name="check-circle" :size="12" /> Clear for Discharge</button>
-        <button v-else-if="b.status === 'Reserved'" class="btn btn-secondary btn-sm btn-block" style="margin-top:10px;" @click="clear(b)"><Icon name="x-circle" :size="12" /> Cancel Reservation</button>
+        <template v-else-if="b.status === 'Reserved'">
+          <button class="btn btn-primary btn-sm btn-block" style="margin-top:10px;" @click="admit(b)"><Icon name="check-circle" :size="12" /> Admit to Bed</button>
+          <button class="btn btn-secondary btn-sm btn-block" style="margin-top:6px;" @click="clear(b)"><Icon name="x-circle" :size="12" /> Cancel Reservation</button>
+        </template>
       </div>
     </div>
   </div>
@@ -24,25 +27,6 @@ const beds = ref<any[]>([])
 async function load() {
   const { data } = await supabase.from('recovery_beds').select('*, patient_names:occupied_by_patient_id(full_name)').order('id', { ascending: true })
   const rows = (data || []).map((b: any) => ({ ...b, patient_name: b.patient_names?.full_name }))
-
-  // Self-heal: a bed 'Reserved' for a date that has now arrived is
-  // physically occupied, it just hasn't been told yet — there's no
-  // scheduled job to flip it automatically, so this does it the moment
-  // staff load this board (which happens routinely through the shift)
-  // rather than leave it stuck showing 'Reserved' indefinitely.
-  const todayStr = new Date().toISOString().slice(0, 10)
-  const dueToday = rows.filter((b: any) => b.status === 'Reserved' && b.reserved_for_date && b.reserved_for_date <= todayStr)
-  if (dueToday.length) {
-    await Promise.all(
-      dueToday.map((b: any) =>
-        supabase.from('recovery_beds').update({ status: 'Occupied', occupied_since: new Date().toISOString(), reserved_for_date: null }).eq('id', b.id)
-      )
-    )
-    for (const b of dueToday) {
-      b.status = 'Occupied'
-      b.reserved_for_date = null
-    }
-  }
 
   beds.value = rows
 }
@@ -64,12 +48,20 @@ async function clear(b: any) {
   const label = b.status === 'Reserved' ? `${b.id} reservation cancelled` : `${b.id} cleared and marked free`
   await queueOrRun(
     label,
-    { table: 'recovery_beds', kind: 'update', payload: { status: 'Free', occupied_by_patient_id: null, occupied_since: null, reserved_for_date: null }, match: { id: b.id } },
+    { kind: 'rpc', rpcName: 'set_recovery_bed_state', payload: { p_bed_id: b.id, p_action: 'clear' } },
     () => {
       b.status = 'Free'
       b.patient_name = null
       b.reserved_for_date = null
     }
+  )
+}
+
+async function admit(b: any) {
+  await queueOrRun(
+    `${b.id} marked occupied`,
+    { kind: 'rpc', rpcName: 'set_recovery_bed_state', payload: { p_bed_id: b.id, p_action: 'admit' } },
+    () => { b.status = 'Occupied'; b.occupied_since = new Date().toISOString(); b.reserved_for_date = null },
   )
 }
 </script>

@@ -92,16 +92,6 @@ async function submit() {
   if (!targetPatientId) return
   submitting.value = true
 
-  // A bed only physically has someone in it once the procedure date
-  // arrives — flipping it to 'Occupied' the moment ANY future date is
-  // scheduled (previously every case, since this defaults to tomorrow)
-  // made the ward register read as full when it was physically empty.
-  // Today-or-earlier still occupies the bed now; anything further out only
-  // reserves it (excluded from the picker so it can't be double-booked,
-  // but not counted toward "beds occupied now").
-  const todayStr = new Date().toISOString().slice(0, 10)
-  const isNow = date.value <= todayStr
-
   // Snapshotted so a queued-while-offline save replays with what was on
   // the form when Schedule was clicked, not whatever the form happens to
   // hold (a different patient/procedure entirely) by the time it replays.
@@ -113,34 +103,26 @@ async function submit() {
   const targetBedId = bedId.value || null
   const targetNotes = notes.value
 
-  await queueOrRun(`${targetProcedure} scheduled`, [
-    {
-      table: 'surgery_schedule',
-      kind: 'insert',
+  try {
+    await queueOrRun(`${targetProcedure} scheduled`, {
+      kind: 'rpc',
+      rpcName: 'schedule_procedure_with_bed',
       payload: {
-        patient_id: targetPatientId,
-        procedure: targetProcedure,
-        date: targetDate,
-        time: targetTime,
-        location: targetLocation,
-        assigned_provider_id: targetProviderId,
-        recovery_bed_id: targetBedId,
-        status: 'Scheduled',
-        notes: targetNotes,
+        p_surgery_id: crypto.randomUUID(),
+        p_patient_id: targetPatientId,
+        p_procedure: targetProcedure,
+        p_date: targetDate,
+        p_time: targetTime,
+        p_location: targetLocation,
+        p_provider_id: targetProviderId,
+        p_bed_id: targetBedId,
+        p_notes: targetNotes,
       },
-    },
-    ...(targetBedId ? [{
-      table: 'recovery_beds',
-      kind: 'update' as const,
-      payload: isNow
-        ? { status: 'Occupied', occupied_by_patient_id: targetPatientId, occupied_since: new Date().toISOString(), reserved_for_date: null }
-        : { status: 'Reserved', occupied_by_patient_id: targetPatientId, occupied_since: null, reserved_for_date: targetDate },
-      match: { id: targetBedId },
-    }] : []),
-  ])
-
-  submitting.value = false
-  emit('scheduled')
-  emit('update:modelValue', false)
+    })
+    emit('scheduled')
+    emit('update:modelValue', false)
+  } finally {
+    submitting.value = false
+  }
 }
 </script>

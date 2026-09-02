@@ -9,9 +9,8 @@
 // (`{patient_id}@patient.phenryhealth.internal`) built server-side and
 // never shown to the patient; the login form (pages/patient-login.vue)
 // only ever asks for Patient ID + password and translates to this email
-// before calling signInWithPassword. Initial password is the patient's
-// surname exactly as registered; force_password_reset makes them change it
-// immediately, same gate already built for staff.
+// before calling signInWithPassword. A cryptographically random temporary
+// password is returned once; force_password_reset makes them change it.
 //
 // Server route, not a client RPC, for the same reason create-staff.post.ts
 // is: creating an Auth user requires the service-role key, which must
@@ -19,6 +18,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { generateTemporaryPassword } from '~/server/utils/temporaryPassword'
 
 // Duplicated (not imported) from composables/usePatientAuth.ts on purpose —
 // that file is written for the client bundle, and importing a composables/
@@ -40,12 +40,13 @@ export default defineEventHandler(async (event) => {
   const caller = await serverSupabaseUser(event)
   if (!caller) throw createError({ statusCode: 401, statusMessage: 'Not authenticated' })
 
-  const { data: callerProfile } = await userClient.from('profiles').select('role').eq('id', caller.id).single()
-  if (!callerProfile || !['receptionist', 'admin_manager'].includes(callerProfile.role)) {
+  const { data: callerProfile } = await userClient.from('profiles').select('role, active').eq('id', caller.id).single()
+  if (!callerProfile?.active || !['receptionist', 'admin_manager'].includes(callerProfile.role)) {
     throw createError({ statusCode: 403, statusMessage: 'Only Reception or Admin Manager can create a patient portal login' })
   }
 
   const config = useRuntimeConfig()
+  if (!config.supabaseServiceRoleKey) throw createError({ statusCode: 500, statusMessage: 'Server account provisioning is not configured' })
   const admin = createClient(config.public.supabaseUrl as string, config.supabaseServiceRoleKey as string, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
@@ -67,14 +68,7 @@ export default defineEventHandler(async (event) => {
     return { alreadyExists: true, loginId: patientRow.patient_id }
   }
 
-  const initialPassword = (patientRow.surname || '').trim()
-  if (initialPassword.length < 6) {
-    // Supabase's default minimum password length is 6 — a one- or two-
-    // letter surname would otherwise fail account creation silently later.
-    // Padding keeps the scheme (surname-as-password) intact while still
-    // meeting the requirement; the patient resets it immediately anyway.
-    throw createError({ statusCode: 422, statusMessage: 'Surname is too short to use as a temporary password — please contact Admin to set this patient up manually.' })
-  }
+  const initialPassword = generateTemporaryPassword()
 
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email: patientLoginEmail(patientRow.patient_id),
@@ -92,5 +86,5 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 500, statusMessage: createErr?.message || 'Could not create the patient portal login' })
   }
 
-  return { userId: created.user.id, loginId: patientRow.patient_id }
+  return { userId: created.user.id, loginId: patientRow.patient_id, tempPassword: initialPassword }
 })
