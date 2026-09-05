@@ -61,7 +61,7 @@
           <div style="display:flex; flex-direction:column; gap:8px; margin-top:12px;">
             <button class="btn btn-secondary btn-block" style="justify-content:flex-start;" @click="$router.push(`/${role}/results`)"><Icon name="flask" :size="14" /> Enter Lab Results</button>
             <button class="btn btn-secondary btn-block" style="justify-content:flex-start;" @click="$router.push(`/${role}/embryo`)"><Icon name="layers" :size="14" /> Embryo Development Grading</button>
-            <button class="btn btn-secondary btn-block" style="justify-content:flex-start;" @click="$router.push(`/${role}/schedule`)"><Icon name="calendar" :size="14" /> Transfer &amp; Cryo Schedule</button>
+            <button class="btn btn-secondary btn-block" style="justify-content:flex-start;" @click="$router.push(`/${role}/schedule`)"><Icon name="calendar" :size="14" /> Fertility Procedures &amp; Cryostorage</button>
           </div>
         </div>
         <div class="card">
@@ -82,6 +82,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { fmtDate } from '~/composables/useFormat'
+import { isFertilityLabProcedure } from '~/composables/useFertilityProcedures'
 
 const props = defineProps<{ role: string }>()
 const supabase = useSupabaseClient()
@@ -96,12 +97,17 @@ await useAsyncData(`lab-worklist-${props.role}`, async () => {
   // worklist that drops them the moment they're postponed is exactly how
   // they get forgotten. Scheduled + Postponed both count as active; only
   // Done/Cancelled are excluded.
-  const [scheduleRes, templatesRes, ordersRes] = await Promise.all([
+  const [scheduleRes, clinicalScheduleRes, templatesRes, ordersRes] = await Promise.all([
     supabase.from('transfer_cryo_schedule').select('*, patient_names(full_name)').in('status', ['Scheduled', 'Postponed']).order('scheduled_date', { ascending: true }),
+    supabase.from('surgery_schedule').select('*, patient_names(full_name)').in('status', ['Scheduled', 'Postponed']).order('date', { ascending: true }),
     supabase.from('lab_templates').select('*').order('name', { ascending: true }),
     supabase.from('lab_test_orders').select('*, patient_names(full_name)').in('status', ['Ordered', 'Collected']).order('created_at', { ascending: false }),
   ])
-  items.value = (scheduleRes.data || []).map((it: any) => ({ ...it, patient_name: it.patient_names?.full_name || 'Unknown' }))
+  const legacyItems = (scheduleRes.data || []).map((it: any) => ({ ...it, patient_name: it.patient_names?.full_name || 'Unknown' }))
+  const clinicalItems = (clinicalScheduleRes.data || [])
+    .filter((it: any) => isFertilityLabProcedure(it.procedure))
+    .map((it: any) => ({ ...it, type: it.procedure, scheduled_date: it.date, patient_name: it.patient_names?.full_name || 'Unknown' }))
+  items.value = [...clinicalItems, ...legacyItems].sort((a: any, b: any) => a.scheduled_date.localeCompare(b.scheduled_date))
   templates.value = templatesRes.data || []
   orders.value = (ordersRes.data || []).map((o: any) => ({ ...o, patient_name: o.patient_names?.full_name || 'Unknown' }))
   return true

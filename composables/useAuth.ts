@@ -3,6 +3,8 @@
 // a fetch of the matching profiles row (role, patient_id, force_password_reset).
 import { cacheProfileSnapshot, getCachedProfileSnapshot } from '~/composables/useOfflineDb'
 
+const LAST_CONFIRMED_USER_KEY = 'phenry-health:last-confirmed-user-id'
+
 export interface Profile {
   id: string
   role: string | null
@@ -16,6 +18,9 @@ export interface Profile {
 
 export const useProfile = () =>
   useState<Profile | null>('profile', () => null)
+
+export const useLastConfirmedUserId = () =>
+  useState<string | null>('last-confirmed-user-id', () => null)
 
 export type ProfileRefreshStatus = 'active' | 'revoked' | 'missing' | 'unavailable' | 'signed-out'
 
@@ -35,6 +40,53 @@ async function cachedProfileFor(userId: string, current: Profile | null) {
   }
 }
 
+function lastConfirmedUserId() {
+  const remembered = useLastConfirmedUserId()
+  if (!remembered.value && import.meta.client) {
+    try {
+      remembered.value = window.localStorage.getItem(LAST_CONFIRMED_USER_KEY)
+    } catch {
+      // Private browsing/storage restrictions must not break normal auth.
+    }
+  }
+  return remembered.value
+}
+
+function rememberConfirmedUser(userId: string) {
+  useLastConfirmedUserId().value = userId
+  if (!import.meta.client) return
+  try {
+    window.localStorage.setItem(LAST_CONFIRMED_USER_KEY, userId)
+  } catch {
+    // The in-memory profile still keeps this tab usable.
+  }
+}
+
+function forgetConfirmedUser() {
+  useLastConfirmedUserId().value = null
+  if (!import.meta.client) return
+  try {
+    window.localStorage.removeItem(LAST_CONFIRMED_USER_KEY)
+  } catch {
+    // Storage may already have been cleared by the browser.
+  }
+}
+
+// Restore only a profile which was previously confirmed by the server and is
+// still inside the encrypted cache's expiry window. The UUID pointer contains
+// no clinical data; it only lets us locate the user-scoped encrypted record
+// after Supabase temporarily publishes a null user during a failed refresh.
+export async function restoreLastConfirmedProfile(): Promise<Profile | null> {
+  const profile = useProfile()
+  if (profile.value?.active) return profile.value
+  if (!import.meta.client) return null
+  const userId = lastConfirmedUserId()
+  if (!userId) return null
+  const cached = await cachedProfileFor(userId, profile.value)
+  if (cached) profile.value = cached
+  return cached
+}
+
 // A profile refresh has three materially different failure outcomes:
 // confirmed inactive/missing, signed out, and temporarily unreachable. Only
 // the first is an access revocation. Network/server errors keep the last
@@ -45,10 +97,12 @@ export async function refreshProfileAccess(): Promise<ProfileRefreshResult> {
   const profile = useProfile()
 
   if (!user.value) {
-    if (import.meta.client && !navigator.onLine && profile.value) {
-      return { status: 'unavailable', profile: profile.value }
-    }
-    profile.value = null
+    // `navigator.onLine` is advisory and frequently remains true after Wi-Fi
+    // loses upstream access. Never destroy a confirmed identity merely because
+    // Supabase's reactive user is temporarily null; explicit/confirmed sign-out
+    // paths below are responsible for clearing it.
+    const cached = await restoreLastConfirmedProfile()
+    if (cached) return { status: 'unavailable', profile: cached }
     return { status: 'signed-out', profile: null }
   }
 
@@ -81,6 +135,7 @@ export async function refreshProfileAccess(): Promise<ProfileRefreshResult> {
   if (!profile.value.active) return { status: 'revoked', profile: profile.value }
 
   if (import.meta.client) {
+    rememberConfirmedUser(userId)
     try {
       await cacheProfileSnapshot(userId, profile.value)
     } catch {
@@ -97,7 +152,7 @@ export async function loadProfile() {
 export async function signOut() {
   const supabase = useSupabaseClient()
   const user = useSupabaseUser()
-  const userId = user.value?.id
+  const userId = user.value?.id || useProfile().value?.id || lastConfirmedUserId()
   const { pendingCount, flushQueue, clearUserState } = useSyncQueue()
 
   if (pendingCount.value > 0 && navigator.onLine) await flushQueue()
@@ -109,15 +164,17 @@ export async function signOut() {
   await supabase.auth.signOut()
   if (userId) await clearUserState(userId)
   useProfile().value = null
+  forgetConfirmedUser()
   await navigateTo('/login')
   return true
 }
 
 export async function forceSignOut(reason = 'revoked') {
   const supabase = useSupabaseClient()
-  const userId = useSupabaseUser().value?.id
+  const userId = useSupabaseUser().value?.id || useProfile().value?.id || lastConfirmedUserId()
   if (userId) await useSyncQueue().clearUserState(userId)
   await supabase.auth.signOut()
   useProfile().value = null
+  forgetConfirmedUser()
   await navigateTo(`/login?${encodeURIComponent(reason)}=1`)
 }

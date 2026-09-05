@@ -9,6 +9,10 @@ const FERTILITY_PROCEDURE_PATTERNS = [
   /intrauterine insemination/i,
   /sperm (freez|cryopreserv|thaw|preparation|retrieval)/i,
   /semen (freez|cryopreserv|preparation)/i,
+  /\bicsi\b/i,
+  /ivf insemination/i,
+  /assisted hatching/i,
+  /(embryo|trophectoderm|pgt) biopsy/i,
   /\b(tese|tesa|pesa|mesa|micro[- ]?tese)\b/i,
 ]
 

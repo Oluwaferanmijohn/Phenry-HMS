@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="page-header">
-      <div><h1>Surgery &amp; Procedure Scheduling</h1><div class="desc">Theatre bookings, recovery allocation, and procedure reports.</div></div>
+      <div><h1>{{ title }}</h1><div class="desc">{{ excludeFertilityProcedures ? 'Non-fertility theatre bookings remain here; embryology procedures are documented in the Fertility Procedures workspace.' : 'Theatre bookings, recovery allocation, and procedure reports.' }}</div></div>
       <div v-if="allowSchedule" class="page-actions"><button class="btn btn-primary" @click="showSchedule = true"><Icon name="plus" :size="14" /> Schedule Procedure</button></div>
     </div>
     <div class="card">
@@ -33,7 +33,7 @@ import { fmtDate, formatTime12 } from '~/composables/useFormat'
 import { useProfile } from '~/composables/useAuth'
 import { isFertilityLabProcedure } from '~/composables/useFertilityProcedures'
 
-const props = withDefaults(defineProps<{ allowSchedule?: boolean; canDocument?: boolean; excludeFertilityProcedures?: boolean }>(), { canDocument: true, excludeFertilityProcedures: false })
+const props = withDefaults(defineProps<{ allowSchedule?: boolean; canDocument?: boolean; excludeFertilityProcedures?: boolean; title?: string }>(), { canDocument: true, excludeFertilityProcedures: false, title: 'Surgery & Procedure Scheduling' })
 
 const supabase = useSupabaseClient()
 const profile = useProfile()

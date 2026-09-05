@@ -10,16 +10,18 @@ export default defineNuxtRouteMiddleware(async (to) => {
   let refreshStatus: ProfileRefreshStatus | null = null
 
   if (!user.value) {
-    // Supabase's reactive user can temporarily be unavailable while a token
-    // refresh has no network. A last-confirmed active profile is sufficient
-    // for this device's encrypted offline workspace until reconnect.
-    if (!(offline && profile.value?.active)) {
+    // Restore the encrypted last-confirmed profile before making any redirect
+    // decision. `navigator.onLine` cannot be trusted here: browsers often keep
+    // reporting online when the router has no internet access.
+    const refreshed = await refreshProfileAccess()
+    refreshStatus = refreshed.status
+    if (!refreshed.profile) {
       if (!PUBLIC_ROUTES.has(to.path)) return navigateTo('/login')
       return
     }
   }
 
-  if (user.value && (!profile.value || profile.value.id !== user.value.id)) {
+  if (user.value && (!profile.value || profile.value.id !== user.value.id || offline)) {
     const refreshed = await refreshProfileAccess()
     refreshStatus = refreshed.status
   }

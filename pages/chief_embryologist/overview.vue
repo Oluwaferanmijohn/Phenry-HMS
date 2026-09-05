@@ -44,6 +44,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { formatTime12 } from '~/composables/useFormat'
+import { isFertilityLabProcedure } from '~/composables/useFertilityProcedures'
 
 const supabase = useSupabaseClient()
 const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
@@ -53,12 +54,15 @@ const failingUnits = ref(0)
 
 await useAsyncData('chief-overview', async () => {
   const todayStr = new Date().toISOString().slice(0, 10)
-  const [surgeryRes, tanksRes, incRes] = await Promise.all([
+  const [surgeryRes, legacyRes, tanksRes, incRes] = await Promise.all([
     supabase.from('surgery_schedule').select('*, patient_names(full_name)').eq('date', todayStr).order('time', { ascending: true }),
+    supabase.from('transfer_cryo_schedule').select('*, patient_names(full_name)').eq('scheduled_date', todayStr),
     supabase.from('cryo_tanks').select('*').order('name', { ascending: true }),
     supabase.from('incubator_logs').select('id', { count: 'exact', head: true }).eq('status', 'Fail'),
   ])
-  todayProcedures.value = (surgeryRes.data || []).map((p: any) => ({ ...p, patient_name: p.patient_names?.full_name || 'Unknown' }))
+  const clinical = (surgeryRes.data || []).filter((p: any) => isFertilityLabProcedure(p.procedure)).map((p: any) => ({ ...p, patient_name: p.patient_names?.full_name || 'Unknown' }))
+  const legacy = (legacyRes.data || []).map((p: any) => ({ ...p, procedure: p.type, time: '', patient_name: p.patient_names?.full_name || 'Unknown' }))
+  todayProcedures.value = [...clinical, ...legacy]
   tanks.value = tanksRes.data || []
   failingUnits.value = incRes.count || 0
   return true

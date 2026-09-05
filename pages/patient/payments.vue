@@ -143,10 +143,13 @@ async function submitProof() {
 
   const safeName = chosenFile.value.name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-120)
   const path = `${patientId}/${activeMilestone.value.id}/${crypto.randomUUID()}-${safeName}`
-  const { error: uploadError } = await supabase.storage.from('payment-proofs').upload(path, chosenFile.value)
+  const { error: uploadError } = await supabase.storage.from('payment-proofs').upload(path, chosenFile.value, { contentType: chosenFile.value.type, upsert: false })
   if (uploadError) {
     submitting.value = false
-    toast('Could not upload the file — please try again', 'warn')
+    const policyHint = /row.level security|unauthorized|invalid key/i.test(uploadError.message)
+      ? 'Payment proof storage needs the slash-safe policy migration.'
+      : uploadError.message
+    toast(`Could not upload the file: ${policyHint}`, 'warn')
     return
   }
 

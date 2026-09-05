@@ -9,6 +9,7 @@
         <select class="input patient-select" :value="patientId" @change="switchPatient(($event.target as HTMLSelectElement).value)">
           <option v-for="p in patients" :key="p.patient_id" :value="p.patient_id">{{ p.full_name }} — {{ p.patient_id }}</option>
         </select>
+        <button class="btn btn-secondary" @click="showCryoStorage = true"><Icon name="snow" :size="13" /> Store Embryos</button>
         <button class="btn btn-primary" :disabled="saving" @click="save"><Icon name="check-circle" :size="13" /> Save grading</button>
       </div>
     </div>
@@ -95,6 +96,7 @@
         <div class="summary-note"><Icon name="shield" :size="15" /><span>Day 0 captures oocyte maturity. Day 1 begins fertilization assessment.</span></div>
       </aside>
     </div>
+    <CryoLogModal v-model="showCryoStorage" :tanks="cryoTanks" :preselected-patient-id="patientId" default-asset-type="Embryo" @logged="handleEmbryoStored" />
   </div>
 
   <div v-else>
@@ -131,6 +133,8 @@ const patients = ref<any[]>([])
 const patientId = ref('')
 const patientName = ref('')
 const saving = ref(false)
+const showCryoStorage = ref(false)
+const cryoTanks = ref<any[]>([])
 const activeDayKey = ref<DayKey>('day0')
 
 function emptyBatches(): Record<DayKey, DayBatch> {
@@ -225,8 +229,12 @@ async function loadPatient(id: string) {
 }
 
 await useAsyncData(`embryo-grading-init-${props.role}`, async () => {
-  const { data } = await supabase.from('patient_names').select('patient_id, full_name').order('full_name', { ascending: true })
-  patients.value = data || []
+  const [patientRes, tankRes] = await Promise.all([
+    supabase.from('patient_names').select('patient_id, full_name').order('full_name', { ascending: true }),
+    supabase.from('cryo_tanks').select('*').order('name', { ascending: true }),
+  ])
+  patients.value = patientRes.data || []
+  cryoTanks.value = tankRes.data || []
   const requestedPatient = typeof route.query.patient === 'string' ? route.query.patient : ''
   patientId.value = patients.value.some((patient) => patient.patient_id === requestedPatient) ? requestedPatient : patients.value[0]?.patient_id || ''
   if (patientId.value) await loadPatient(patientId.value)
@@ -238,6 +246,10 @@ function switchPatient(id: string) {
   patientId.value = id
   activeDayKey.value = 'day0'
   void loadPatient(id)
+}
+
+function handleEmbryoStored() {
+  toast('Embryos were linked to this patient and their exact storage location was recorded.', 'success')
 }
 
 function validate() {

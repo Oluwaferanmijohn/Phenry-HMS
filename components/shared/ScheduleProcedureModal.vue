@@ -18,6 +18,7 @@
           <optgroup label="Fertility / Embryology Procedures">
             <option>OPU / Oocyte Retrieval</option><option>IUI</option><option>Embryo Transfer</option><option>Frozen Embryo Transfer (FET)</option>
             <option>Oocyte Freezing</option><option>Embryo Cryopreservation</option><option>Sperm Freezing</option><option>Surgical Sperm Retrieval (TESA / TESE)</option>
+            <option>ICSI</option><option>IVF Insemination</option><option>Embryo Biopsy / PGT</option><option>Assisted Hatching</option>
           </optgroup>
           <optgroup label="Other Clinical Procedures"><option>Consultation</option><option>Hysteroscopy</option><option>Laparoscopy</option><option>Other Surgery</option></optgroup>
         </select>

@@ -18,6 +18,8 @@ as $$
     || '|frozen embryo transfer|intrauterine insemination'
     || '|sperm (freez|cryopreserv|thaw|preparation|retrieval)'
     || '|semen (freez|cryopreserv|preparation)'
+    || '|(^|[^a-z])icsi([^a-z]|$)|ivf insemination|assisted hatching'
+    || '|(embryo|trophectoderm|pgt) biopsy'
   );
 $$;
 
@@ -39,6 +41,41 @@ drop trigger if exists fertility_procedure_reports_set_updated_at on public.fert
 create trigger fertility_procedure_reports_set_updated_at
 before update on public.fertility_procedure_reports
 for each row execute function public.set_updated_at();
+
+-- Preserve useful data from the older general operative form. The new report
+-- can then be opened and amended instead of making staff retype prior OPUs.
+insert into public.fertility_procedure_reports(
+  schedule_id, patient_id, procedure_type, status, documentation,
+  documented_at, created_at, updated_at
+)
+select
+  s.id, s.patient_id, s.procedure,
+  case when s.status = 'Completed' then 'Completed' else 'Draft' end,
+  jsonb_build_object(
+    'common', jsonb_build_object(
+      'clinician', coalesce(o.op_notes ->> 'surgeon', ''),
+      'embryologist', '', 'witness', '',
+      'identityVerified', coalesce((o.pre_op ->> 'consentVerified')::boolean, false),
+      'consentVerified', coalesce((o.pre_op ->> 'consentVerified')::boolean, false),
+      'timeOutCompleted', false, 'witnessCheck', false,
+      'location', coalesce(s.location, '')
+    ),
+    'details', jsonb_build_object(
+      'oocytesRetrieved', coalesce(o.op_notes ->> 'eggsRetrieved', '')
+    ),
+    'outcome', jsonb_build_object(
+      'result', case when s.status = 'Completed' then 'Completed as planned' else 'Partially completed' end,
+      'complications', coalesce(o.op_notes ->> 'complications', 'None'),
+      'notes', coalesce(o.op_notes ->> 'narrative', ''),
+      'followUp', coalesce(o.post_op ->> 'recoveryInstructions', '')
+    )
+  ),
+  case when s.status = 'Completed' then coalesce(o.updated_at, now()) else null end,
+  coalesce(o.updated_at, now()), coalesce(o.updated_at, now())
+from public.surgery_schedule s
+join public.operative_reports o on o.surgery_id = s.id
+where public.is_fertility_lab_procedure(s.procedure)
+on conflict (schedule_id) do nothing;
 
 alter table public.fertility_procedure_reports enable row level security;
 drop policy if exists "embryology manages fertility procedure reports" on public.fertility_procedure_reports;
@@ -70,6 +107,12 @@ alter table public.cryo_records alter column updated_at set not null;
 drop trigger if exists cryo_records_set_updated_at on public.cryo_records;
 create trigger cryo_records_set_updated_at before update on public.cryo_records
 for each row execute function public.set_updated_at();
+
+create unique index if not exists cryo_records_active_location_label_key
+on public.cryo_records(tank_id, canister, cane, goblet, position, container_label)
+where status = 'Stored'
+  and tank_id is not null and canister is not null and cane is not null
+  and goblet is not null and position is not null and container_label is not null;
 
 create or replace function public.save_fertility_procedure_report(
   p_schedule_id uuid,
@@ -258,8 +301,8 @@ begin
     update public.cryo_tanks set used = greatest(0, used - p_straws_used) where id = r.tank_id;
   end if;
   if to_regclass('public.cryo_movements') is not null then
-    insert into public.cryo_movements(cryo_record_id, quantity_delta, reason, actor_id)
-    values(p_record_id, -p_straws_used, 'Removed from cryogenic storage', auth.uid());
+    execute 'insert into public.cryo_movements(cryo_record_id, quantity_delta, reason, actor_id) values($1,$2,$3,$4)'
+    using p_record_id, -p_straws_used, 'Removed from cryogenic storage', auth.uid();
   end if;
   perform public.log_audit_event('Cryo Specimen Removed', p_record_id::text || ' · units ' || p_straws_used);
   return r;

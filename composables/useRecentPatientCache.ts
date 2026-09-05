@@ -13,7 +13,7 @@ export function useRecentPatientCache() {
   const profile = useProfile()
 
   async function loadWithCache<T>(patientId: string, fetcher: () => Promise<T>): Promise<{ data: T | null; fromCache: boolean }> {
-    const userId = user.value?.id || (!online.value ? profile.value?.id : undefined)
+    const userId = user.value?.id || (profile.value?.active ? profile.value.id : undefined)
     if (!userId) return { data: null, fromCache: false }
     if (online.value) {
       try {
