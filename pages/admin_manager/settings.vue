@@ -15,20 +15,51 @@
             </div>
           </div>
           <div class="field"><label>Clinic Name</label><input v-model="cs.clinic_name" class="input" /><div class="hint">Shown to patients throughout the portal and on printed documents.</div></div>
+          <div class="field"><label>Clinic Tagline</label><input v-model="cs.clinic_tagline" class="input" placeholder="e.g. Compassionate fertility care, guided by science" /></div>
           <div class="field"><label>Full Company Name</label><input v-model="cs.company_name" class="input" /></div>
-          <div class="field"><label>Address</label><textarea v-model="cs.company_address" class="input" rows="2" /></div>
-          <div class="field"><label>Phone Number</label><input v-model="cs.company_phone" class="input" /></div>
+          <div class="field"><label>Street Address</label><textarea v-model="cs.company_address" class="input" rows="2" /></div>
+          <div class="form-row">
+            <div class="field"><label>City</label><input v-model="cs.city" class="input" /></div>
+            <div class="field"><label>State / Province</label><input v-model="cs.state" class="input" /></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label>Country</label><input v-model="cs.country" class="input" placeholder="Nigeria" /></div>
+            <div class="field"><label>Postal Code</label><input v-model="cs.postal_code" class="input" /></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label>Primary Phone</label><input v-model="cs.company_phone" class="input" /></div>
+            <div class="field"><label>Alternative Phone</label><input v-model="cs.company_phone_alt" class="input" /></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label>Official Email</label><input v-model="cs.company_email" class="input" type="email" /></div>
+            <div class="field"><label>Website</label><input v-model="cs.company_website" class="input" placeholder="https://..." /></div>
+          </div>
         </div>
       </div>
       <div class="card">
-        <div class="card-header"><h3><Icon name="cash" :size="15" /> Clinic Bank Account Details</h3></div>
+        <div class="card-header"><h3><Icon name="shield" :size="15" /> Legal &amp; Laboratory Identity</h3></div>
         <div class="card-body">
+          <div class="field"><label>Healthcare Facility Registration Number</label><input v-model="cs.registration_number" class="input" /><div class="hint">Appears on official reports where supplied.</div></div>
+          <div class="field"><label>Laboratory Licence / Accreditation Number</label><input v-model="cs.laboratory_license_number" class="input" /></div>
+          <div class="field"><label>Tax Identification Number</label><input v-model="cs.tax_identification_number" class="input" /></div>
+          <hr class="hr" />
+          <div class="field"><label>Laboratory Director / Responsible Professional</label><input v-model="cs.laboratory_director_name" class="input" /></div>
+          <div class="field"><label>Professional Title</label><input v-model="cs.laboratory_director_title" class="input" placeholder="e.g. Consultant Pathologist" /></div>
+          <div class="field"><label>Official Document Footer</label><textarea v-model="cs.report_footer" class="input" rows="3" placeholder="Optional accreditation, confidentiality, or contact statement." /><div class="hint">Used on printable laboratory reports and can be reused by future invoices, receipts, and letters.</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="cs" class="card" style="margin-top:18px;">
+      <div class="card-header"><h3><Icon name="cash" :size="15" /> Clinic Bank Account Details</h3></div>
+      <div class="card-body">
+        <div class="form-row-3">
           <div class="field"><label>Bank Name</label><input v-model="cs.bank.name" class="input" /></div>
           <div class="field"><label>Account Name</label><input v-model="cs.bank.accountName" class="input" /></div>
           <div class="field"><label>Account Number</label><input v-model="cs.bank.accountNumber" class="input" /></div>
-          <div style="background:var(--blue-50); border:1px solid var(--blue-100); border-radius:var(--radius-sm); padding:10px 12px; font-size:11.5px; color:var(--text-700);">
-            <Icon name="check-circle" :size="11" /> This information is displayed to patients for IVF installment payments.
-          </div>
+        </div>
+        <div style="background:var(--blue-50); border:1px solid var(--blue-100); border-radius:var(--radius-sm); padding:10px 12px; font-size:11.5px; color:var(--text-700);">
+          <Icon name="check-circle" :size="11" /> This information is displayed to patients for IVF installment payments.
         </div>
       </div>
     </div>
@@ -147,6 +178,20 @@ async function save() {
       company_name: cs.value.company_name,
       company_address: cs.value.company_address,
       company_phone: cs.value.company_phone,
+      clinic_tagline: cs.value.clinic_tagline,
+      company_phone_alt: cs.value.company_phone_alt,
+      company_email: cs.value.company_email,
+      company_website: cs.value.company_website,
+      city: cs.value.city,
+      state: cs.value.state,
+      country: cs.value.country,
+      postal_code: cs.value.postal_code,
+      registration_number: cs.value.registration_number,
+      tax_identification_number: cs.value.tax_identification_number,
+      laboratory_license_number: cs.value.laboratory_license_number,
+      laboratory_director_name: cs.value.laboratory_director_name,
+      laboratory_director_title: cs.value.laboratory_director_title,
+      report_footer: cs.value.report_footer,
       bank: cs.value.bank,
       appointment_interval: cs.value.appointment_interval,
       schedule: cs.value.schedule,

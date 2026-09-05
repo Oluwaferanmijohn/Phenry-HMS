@@ -139,7 +139,7 @@
 
     <RxModal v-model="showRx" :patient-id="patient.patient_id" :patient-name="patient.full_name" @added="onRxAdded" />
     <ScheduleProcedureModal v-model="showScheduleProcedure" :preselected-patient-id="patient.patient_id" />
-    <PatientDetailModal v-model="showFullHistory" :patient="patient" :cycle="cycle" :consultations="pastConsultations" :lab-results="pastLabResults" :caps="{}" />
+    <PatientDetailModal v-model="showFullHistory" :patient="patient" :cycle="cycle" :consultations="pastConsultations" :lab-results="pastLabResults" :caps="{}" @open-spouse="$router.push(`/${role}/patients?patient=${$event}&linkedFrom=${patient.patient_id}`)" />
   </div>
 </template>
 

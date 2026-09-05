@@ -1,1 +1,1 @@
-<template><SurgeryPage :allow-schedule="false" :can-document="false" /></template>
+<template><SurgeryPage :allow-schedule="false" :can-document="false" exclude-fertility-procedures /></template>

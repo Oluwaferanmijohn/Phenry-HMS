@@ -41,6 +41,10 @@
     </div>
     <div class="grid grid-main-side">
       <div class="card card-pad">
+        <div v-if="editingResultId" class="edit-result-banner">
+          <div><Badge tone="amber">Amending Result</Badge><b>{{ template?.name }}</b><span>The original author and amendment history remain on the report.</span></div>
+          <button class="btn btn-secondary btn-sm" @click="resetForm"><Icon name="x-circle" :size="12" /> Stop Editing</button>
+        </div>
         <div class="form-row">
           <div class="field"><label>Target Patient ID</label><select v-model="patientId" class="input" :disabled="Boolean(activeOrder)" @change="loadPatient(patientId)"><option v-for="p in patients" :key="p.patient_id" :value="p.patient_id">{{ p.full_name }} — {{ p.patient_id }}</option></select></div>
           <div class="field"><label>Select Test Template</label><select v-model="templateId" class="input"><option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</option></select></div>
@@ -61,24 +65,29 @@
           </table>
         </div>
         <div class="field" style="margin-top:14px;"><label>Add Lab Remarks</label><textarea v-model="remarks" class="input" rows="3" placeholder="Enter any technical observations, sample quality notes, or context for flagged results…" /></div>
+        <div v-if="editingResultId" class="field amendment-field"><label>Reason for Amendment <span style="color:var(--red-600);">*</span></label><textarea v-model="amendmentReason" class="input" rows="2" placeholder="State exactly why this finalized result is being changed." /><div class="hint">This reason, your name, and the amendment time will appear on the report.</div></div>
         <div class="flex-between" style="margin-top:14px;">
           <button class="btn btn-secondary" @click="resetForm">Cancel</button>
-          <button class="btn btn-primary" :disabled="submitting" @click="save"><Icon name="file" :size="13" /> Save Results &amp; Attach to Patient File</button>
+          <button class="btn btn-primary" :disabled="submitting" @click="save"><Icon :name="editingResultId ? 'edit' : 'file'" :size="13" /> {{ editingResultId ? 'Save Audited Amendment' : 'Save Results & Attach to Patient File' }}</button>
         </div>
       </div>
       <div class="card">
         <div class="card-header"><h3><Icon name="file" :size="15" /> On File for {{ patient.first_name }}</h3></div>
         <div class="card-body tight">
           <p v-if="!onFile.length" class="muted" style="font-size:12px; padding:16px 20px;">No results on file yet.</p>
-          <div v-for="r in onFile" :key="r.id" class="list-row">
-            <div><div class="main-txt">{{ r.title || r.lab_templates?.name }}</div><div class="sub-txt">{{ fmtDate(r.collected_on) }} · {{ r.entered_by_name }}</div></div>
-            <Badge v-if="r.external" tone="purple">External</Badge>
-            <Badge v-else-if="flaggedCount(r) > 0" tone="red">⚠ {{ flaggedCount(r) }} abnormal</Badge>
-          </div>
+          <button v-for="r in onFile" :key="r.id" type="button" class="list-row history-result-row" @click="openHistoryResult(r)">
+            <div><div class="main-txt">{{ r.title || r.lab_templates?.name || 'Lab Result' }}</div><div class="sub-txt">{{ fmtDate(r.collected_on) }} · {{ r.entered_by_name }}<span v-if="r.amended_at"> · Amended</span></div></div>
+            <div class="history-result-actions">
+              <Badge v-if="r.external" tone="purple">External</Badge>
+              <Badge v-else-if="flaggedCount(r) > 0" tone="red">⚠ {{ flaggedCount(r) }} abnormal</Badge>
+              <Icon :name="r.external ? 'download' : 'eye'" :size="14" />
+            </div>
+          </button>
         </div>
       </div>
     </div>
     <ExternalUploadModal v-model="showExternal" :preselected-patient-id="patientId" @uploaded="loadOnFile" />
+    <LabResultReportModal v-model="showReport" :result-id="selectedResultId" editable @edit="startEdit" />
   </div>
   <div v-else class="card card-pad" style="text-align:center; color:var(--text-500); font-size:13px;">
     Loading…
@@ -86,16 +95,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import { fmtDate } from '~/composables/useFormat'
 import { useSyncQueue } from '~/composables/useSyncQueue'
 import { useProfile } from '~/composables/useAuth'
 import { computeFlag } from '~/composables/useLabFlag'
+import { useToast } from '~/composables/useToast'
 
 const props = defineProps<{ role: string }>()
 const supabase = useSupabaseClient()
 const profile = useProfile()
 const { queueOrRun } = useSyncQueue()
+const { toast } = useToast()
 const route = useRoute()
 const router = useRouter()
 
@@ -111,9 +122,14 @@ const collectedOn = ref(new Date().toISOString().slice(0, 10))
 const values = ref<string[]>([])
 const remarks = ref('')
 const onFile = ref<any[]>([])
-const showExternal = ref(false)
+const showExternal = ref(route.query.external === '1')
 const submitting = ref(false)
 const completingOrder = ref(false)
+const showReport = ref(false)
+const selectedResultId = ref('')
+const editingResultId = ref('')
+const editingUpdatedAt = ref('')
+const amendmentReason = ref('')
 
 async function loadPatient(id: string) {
   const { data } = await supabase.from('patient_names').select('*').eq('patient_id', id).single()
@@ -220,15 +236,56 @@ function flaggedCount(result: any) {
 function resetForm() {
   remarks.value = ''
   values.value = template.value ? new Array(template.value.variables.length).fill('') : []
+  editingResultId.value = ''
+  editingUpdatedAt.value = ''
+  amendmentReason.value = ''
+}
+
+async function openHistoryResult(result: any) {
+  if (result.external && result.external_file_url) {
+    const { data, error } = await supabase.storage.from('lab-external-results').createSignedUrl(result.external_file_url, 60)
+    if (error || !data?.signedUrl) return toast("Couldn't open this external result. Please try again.", 'warn')
+    window.open(data.signedUrl, '_blank')
+    return
+  }
+  selectedResultId.value = result.id
+  showReport.value = true
+}
+
+async function startEdit(reportContext: any) {
+  const result = reportContext?.result
+  const targetTemplate = templates.value.find((entry) => entry.id === result?.template_id)
+  if (!result || !targetTemplate) {
+    toast('This result cannot be edited because its template is no longer available.', 'warn')
+    return
+  }
+  showReport.value = false
+  templateId.value = targetTemplate.id
+  await nextTick()
+  template.value = targetTemplate
+  values.value = targetTemplate.variables.map((variable: any) => {
+    const saved = Array.isArray(result.values)
+      ? result.values.find((entry: any) => String(entry.param || '').trim().toLowerCase() === String(variable.name || '').trim().toLowerCase())
+      : null
+    return saved?.value == null ? '' : String(saved.value)
+  })
+  collectedOn.value = String(result.collected_on || '').slice(0, 10) || new Date().toISOString().slice(0, 10)
+  remarks.value = result.remarks || ''
+  editingResultId.value = result.id
+  editingUpdatedAt.value = result.updated_at || ''
+  amendmentReason.value = ''
+  if (import.meta.client) window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 async function save() {
   if (!template.value || !patient.value) return
-  submitting.value = true
-  const valuesPayload = template.value.variables.map((v: any, i: number) => {
-    const enteredValue = values.value[i] || '—'
-    return { param: v.name, value: enteredValue, unit: v.unit, ref: v.ref, flag: computeFlag(enteredValue, v.ref) }
+  const valuesPayload = template.value.variables.flatMap((v: any, i: number) => {
+    const enteredValue = String(values.value[i] ?? '').trim()
+    if (!enteredValue) return []
+    return [{ param: v.name, value: enteredValue, unit: v.unit, ref: v.ref, flag: computeFlag(enteredValue, v.ref) }]
   })
+  if (!valuesPayload.length) return toast('Enter at least one result value before saving.', 'warn')
+  if (editingResultId.value && !amendmentReason.value.trim()) return toast('Enter a reason for this amendment before saving.', 'warn')
   const targetPatientId = patientId.value
   const targetPatientName = patient.value.full_name
   const targetTemplateId = templateId.value
@@ -236,24 +293,63 @@ async function save() {
   const targetCollectedOn = collectedOn.value
   const targetRemarks = remarks.value
   const enteredByProfileId = profile.value!.id
+  const targetResultId = editingResultId.value
+  const targetUpdatedAt = editingUpdatedAt.value
+  const targetAmendmentReason = amendmentReason.value.trim()
 
-  await queueOrRun(
-    `${targetTemplateName} results saved for ${targetPatientName}`,
-    {
-      table: 'lab_results',
-      kind: 'insert',
-      payload: {
-        patient_id: targetPatientId,
-        template_id: targetTemplateId,
-        entered_by_profile_id: enteredByProfileId,
-        collected_on: targetCollectedOn,
-        values: valuesPayload,
-        remarks: targetRemarks,
-      },
-    },
-    () => { if (patientId.value === targetPatientId) loadOnFile() }
-  )
-  submitting.value = false
-  resetForm()
+  submitting.value = true
+  try {
+    if (targetResultId) {
+      await queueOrRun(
+        `${targetTemplateName} amendment saved for ${targetPatientName}`,
+        {
+          table: 'lab_results',
+          kind: 'update',
+          match: { id: targetResultId },
+          expectedUpdatedAt: targetUpdatedAt || undefined,
+          payload: {
+            collected_on: targetCollectedOn,
+            values: valuesPayload,
+            remarks: targetRemarks,
+            amended_at: new Date().toISOString(),
+            amended_by_profile_id: enteredByProfileId,
+            amendment_reason: targetAmendmentReason,
+          },
+        },
+        () => { if (patientId.value === targetPatientId) loadOnFile() },
+      )
+    } else {
+      await queueOrRun(
+        `${targetTemplateName} results saved for ${targetPatientName}`,
+        {
+          table: 'lab_results',
+          kind: 'insert',
+          payload: {
+            patient_id: targetPatientId,
+            template_id: targetTemplateId,
+            entered_by_profile_id: enteredByProfileId,
+            collected_on: targetCollectedOn,
+            values: valuesPayload,
+            remarks: targetRemarks,
+          },
+        },
+        () => { if (patientId.value === targetPatientId) loadOnFile() },
+      )
+    }
+    resetForm()
+  } finally {
+    submitting.value = false
+  }
 }
 </script>
+
+<style scoped>
+.edit-result-banner { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; margin-bottom:16px; padding:12px 14px; border:1px solid var(--amber-500); border-radius:var(--radius-sm); background:var(--amber-50); }
+.edit-result-banner > div { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.edit-result-banner b { font-size:12.5px; }
+.edit-result-banner span { width:100%; color:var(--text-700); font-size:11.5px; }
+.amendment-field { padding:12px; border:1px solid var(--amber-500); border-radius:var(--radius-sm); background:var(--amber-50); }
+.history-result-row { width:100%; border:0; background:transparent; text-align:left; font-family:inherit; cursor:pointer; }
+.history-result-row:hover { background:var(--bg); }
+.history-result-actions { margin-left:auto; display:flex; align-items:center; gap:8px; color:var(--text-400); }
+</style>

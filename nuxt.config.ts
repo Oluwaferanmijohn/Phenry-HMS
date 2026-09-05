@@ -61,7 +61,7 @@ export default defineNuxtConfig({
       headers: {
         'Content-Security-Policy': `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src ${imageSources}; font-src 'self' data:; connect-src ${supabaseConnections}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
         'Referrer-Policy': 'strict-origin-when-cross-origin',
-        'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+        'Permissions-Policy': 'camera=(self), microphone=(), geolocation=()',
         'X-Content-Type-Options': 'nosniff',
         'X-Frame-Options': 'DENY',
       },

@@ -15,14 +15,18 @@
       <div class="field">
         <label>Procedure Type</label>
         <select v-model="procedure" class="input">
-          <option>OPU</option><option>Embryo Transfer</option><option>Consultation</option><option>Hysteroscopy</option>
+          <optgroup label="Fertility / Embryology Procedures">
+            <option>OPU / Oocyte Retrieval</option><option>IUI</option><option>Embryo Transfer</option><option>Frozen Embryo Transfer (FET)</option>
+            <option>Oocyte Freezing</option><option>Embryo Cryopreservation</option><option>Sperm Freezing</option><option>Surgical Sperm Retrieval (TESA / TESE)</option>
+          </optgroup>
+          <optgroup label="Other Clinical Procedures"><option>Consultation</option><option>Hysteroscopy</option><option>Laparoscopy</option><option>Other Surgery</option></optgroup>
         </select>
       </div>
     </div>
     <div class="form-row">
       <div class="field">
         <label>Location / Theatre</label>
-        <select v-model="location" class="input"><option>Theatre 1</option><option>Theatre 2</option><option>Room 1</option><option>Room 2</option></select>
+        <select v-model="location" class="input"><option>Fertility Procedure Room</option><option>Embryology Laboratory</option><option>IUI Room</option><option>Theatre 1</option><option>Theatre 2</option><option>Room 1</option><option>Room 2</option></select>
       </div>
       <div class="field">
         <label>Assigned Provider</label>
@@ -61,10 +65,10 @@ const patients = ref<any[]>([])
 const providers = ref<any[]>([])
 const freeBeds = ref<any[]>([])
 const patientId = ref('')
-const procedure = ref('OPU')
+const procedure = ref('OPU / Oocyte Retrieval')
 const date = ref(new Date(Date.now() + 86400000).toISOString().slice(0, 10))
 const time = ref('09:00')
-const location = ref('Theatre 1')
+const location = ref('Fertility Procedure Room')
 const providerId = ref('')
 const bedId = ref('')
 const notes = ref('')

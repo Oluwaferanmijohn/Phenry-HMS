@@ -1,11 +1,17 @@
 <template>
   <Modal :model-value="modelValue" :title="patientRecord?.full_name || ''" wide @update:model-value="$emit('update:modelValue', $event)">
     <template v-if="patientRecord">
-      <div class="grid grid-4" style="gap:10px; margin-bottom:14px;">
-        <div><div class="muted" style="font-size:10.5px;">ID</div><div style="font-weight:600; font-size:12.5px;">{{ patientRecord.patient_id }}</div></div>
-        <div><div class="muted" style="font-size:10.5px;">AGE</div><div style="font-weight:600; font-size:12.5px;">{{ computeAge(patientRecord.dob) }}</div></div>
-        <div><div class="muted" style="font-size:10.5px;">BLOOD GROUP</div><div style="font-weight:600; font-size:12.5px;">{{ patientRecord.blood_group || '—' }}</div></div>
-        <div><div class="muted" style="font-size:10.5px;">STATUS</div><StatusBadge :status="patientRecord.status" /></div>
+      <div class="patient-photo-hero">
+        <div class="patient-photo">
+          <img v-if="patientPhotoUrl" :src="patientPhotoUrl" :alt="`${patientRecord.full_name} patient picture`" />
+          <Avatar v-else :name="patientRecord.full_name" :size="68" />
+        </div>
+        <div class="grid grid-4 patient-hero-facts">
+          <div><div class="muted" style="font-size:10.5px;">ID</div><div style="font-weight:600; font-size:12.5px;">{{ patientRecord.patient_id }}</div></div>
+          <div><div class="muted" style="font-size:10.5px;">AGE</div><div style="font-weight:600; font-size:12.5px;">{{ computeAge(patientRecord.dob) }}</div></div>
+          <div><div class="muted" style="font-size:10.5px;">BLOOD GROUP</div><div style="font-weight:600; font-size:12.5px;">{{ patientRecord.blood_group || '—' }}</div></div>
+          <div><div class="muted" style="font-size:10.5px;">STATUS</div><StatusBadge :status="patientRecord.status" /></div>
+        </div>
       </div>
       <div class="registration-strip">
         <div><span>Sex</span><b>{{ patientRecord.sex || '—' }}</b></div>
@@ -86,10 +92,14 @@
           <StatusBadge :status="s.status" />
         </div>
       </div>
-      <template v-if="patientRecord.spouse">
+      <template v-if="spouseSummary || patientRecord.spouse">
         <hr class="hr" />
         <b style="font-size:12.5px;"><Icon name="user" :size="12" /> Spouse / Partner</b>
-        <div class="grid grid-3" style="margin-top:8px; gap:10px;">
+        <button v-if="spouseSummary" type="button" class="spouse-detail-link" @click="$emit('open-spouse', spouseSummary.patient_id)">
+          <div><b>{{ spouseSummary.full_name }}</b><span>{{ spouseSummary.patient_id }} · {{ spouseSummary.sex || 'Sex not recorded' }} · {{ spouseSummary.blood_group || 'Blood group not recorded' }}</span></div>
+          <span class="link">View patient details <Icon name="chevron-right" :size="12" /></span>
+        </button>
+        <div v-else class="grid grid-3" style="margin-top:8px; gap:10px;">
           <div><div class="muted" style="font-size:10.5px;">NAME</div><div style="font-weight:600; font-size:12.5px;">{{ patientRecord.spouse.name || '—' }}</div></div>
           <div><div class="muted" style="font-size:10.5px;">BLOOD GROUP</div><div style="font-weight:600; font-size:12.5px;">{{ patientRecord.spouse.bloodGroup || '—' }}</div></div>
           <div><div class="muted" style="font-size:10.5px;">SFA RESULT</div><div style="font-weight:600; font-size:12.5px;">{{ patientRecord.spouse.sfa || 'Not on file' }}</div></div>
@@ -153,13 +163,13 @@
             <div><div class="main-txt">{{ r.lab_templates?.name || r.title || 'External Upload' }}</div><div class="sub-txt">{{ fmtDate(r.collected_on) }}</div></div>
             <div class="flex gap-8" style="align-items:center;">
               <Badge v-if="flaggedCount(r) > 0" tone="red">⚠ {{ flaggedCount(r) }} abnormal</Badge>
-              <Icon v-if="Array.isArray(r.values) && r.values.length" :name="expanded.has(r.id) ? 'line' : 'plus'" :size="11" />
+              <Icon v-if="recordedResultRows(r).length" :name="expanded.has(r.id) ? 'line' : 'plus'" :size="11" />
             </div>
           </div>
-          <table v-if="expanded.has(r.id) && Array.isArray(r.values) && r.values.length" class="data-table" style="margin-bottom:8px;">
+          <table v-if="expanded.has(r.id) && recordedResultRows(r).length" class="data-table" style="margin-bottom:8px;">
             <thead><tr><th>Parameter</th><th>Value</th><th>Ref. Range</th></tr></thead>
             <tbody>
-              <tr v-for="(v, i) in r.values" :key="i">
+              <tr v-for="(v, i) in recordedResultRows(r)" :key="i">
                 <td class="cell-strong">{{ v.param }}</td>
                 <td :style="{ color: v.flag ? 'var(--red-600)' : 'var(--text-900)', fontWeight: v.flag ? 700 : 500 }">{{ v.value }} {{ v.unit }} {{ v.flag ? '⚠' : '' }}</td>
                 <td class="cell-muted">{{ v.ref }}</td>
@@ -172,9 +182,11 @@
     </template>
     <template #footer>
       <button class="btn btn-secondary" @click="$emit('update:modelValue', false)">Close</button>
-      <button v-if="caps.allowLabActions" class="btn btn-secondary" @click="$emit('upload-external')"><Icon name="upload" :size="13" /> Upload External Result</button>
+      <button v-if="caps.allowExternalUpload" class="btn btn-secondary" @click="$emit('upload-external')"><Icon name="upload" :size="13" /> Upload External Result</button>
       <button v-if="caps.allowConsultation" class="btn btn-primary" @click="$emit('start-consultation')"><Icon name="clipboard" :size="13" /> Start Consultation</button>
+      <button v-if="caps.allowVitals" class="btn btn-secondary" @click="$emit('record-vitals')"><Icon name="activity" :size="13" /> Record Vitals</button>
       <button v-if="caps.allowVisitDoc" class="btn btn-primary" @click="$emit('go-to-visit')"><Icon name="clipboard" :size="13" /> Go to Visit Documentation</button>
+      <button v-if="caps.allowLabEntry" class="btn btn-primary" @click="$emit('enter-lab-result')"><Icon name="flask" :size="13" /> Enter Lab Result</button>
     </template>
   </Modal>
 </template>
@@ -185,6 +197,7 @@ import { fmtDate, computeAge } from '~/composables/useFormat'
 import { resolveCycleManagerNames } from '~/composables/useCycleManagerNames'
 import { useProfile } from '~/composables/useAuth'
 import { fetchImagingHistory, type ImagingStudy, type ImagingTemplateField } from '~/composables/useImagingWorkspace'
+import { fetchPatientPhotoUrl } from '~/composables/usePatientPhoto'
 
 const props = defineProps<{
   modelValue: boolean
@@ -192,9 +205,9 @@ const props = defineProps<{
   cycle: any | null
   consultations: any[]
   labResults: any[]
-  caps: { allowConsultation?: boolean; allowVisitDoc?: boolean; allowLabActions?: boolean }
+  caps: { allowConsultation?: boolean; allowVisitDoc?: boolean; allowVitals?: boolean; allowLabEntry?: boolean; allowExternalUpload?: boolean }
 }>()
-defineEmits<{ 'update:modelValue': [boolean]; 'upload-external': []; 'start-consultation': []; 'go-to-visit': [] }>()
+defineEmits<{ 'update:modelValue': [boolean]; 'upload-external': []; 'start-consultation': []; 'go-to-visit': []; 'record-vitals': []; 'enter-lab-result': []; 'open-spouse': [string] }>()
 
 const expanded = ref<Set<string>>(new Set())
 function toggleExpanded(id: string) {
@@ -203,7 +216,16 @@ function toggleExpanded(id: string) {
   expanded.value = next
 }
 function flaggedCount(result: any) {
-  return Array.isArray(result.values) ? result.values.filter((v: any) => v.flag).length : 0
+  return recordedResultRows(result).filter((value: any) => value.flag).length
+}
+function recordedResultRows(result: any) {
+  if (!Array.isArray(result?.values)) return []
+  return result.values.filter((entry: any) => {
+    const value = entry?.value
+    if (value === null || value === undefined) return false
+    const normalized = String(value).trim()
+    return normalized !== '' && normalized !== '—'
+  })
 }
 
 // Resolved here rather than requiring every caller to embed
@@ -214,6 +236,8 @@ function flaggedCount(result: any) {
 const supabase = useSupabaseClient()
 const profile = useProfile()
 const patientBio = ref<any>(null)
+const spouseSummary = ref<any>(null)
+const patientPhotoUrl = ref('')
 const patientRecord = computed(() => props.patient ? { ...props.patient, ...(patientBio.value || {}) } : null)
 const nurseVisits = ref<any[]>([])
 const staffNames = ref<Map<string, string>>(new Map())
@@ -253,6 +277,8 @@ watch(
   async (patientId) => {
     if (!patientId) {
       patientBio.value = null
+      spouseSummary.value = null
+      patientPhotoUrl.value = ''
       nurseVisits.value = []
       staffNames.value = new Map()
       surgeries.value = []
@@ -271,15 +297,19 @@ watch(
           return [] as ImagingStudy[]
         })
       : Promise.resolve([] as ImagingStudy[])
-    const [bioRes, nurseVisitRes, surgeryRes, transferRes, cryoRes, imagingRes] = await Promise.all([
+    const [bioRes, nurseVisitRes, surgeryRes, transferRes, cryoRes, imagingRes, spouseRes, photoUrl] = await Promise.all([
       supabase.from('bio_details').select('*').eq('patient_id', patientId).maybeSingle(),
       supabase.from('nurse_visits').select('*').eq('patient_id', patientId).order('created_at', { ascending: false }).limit(8),
       supabase.from('surgery_schedule').select('*').eq('patient_id', patientId).order('date', { ascending: false }),
       supabase.from('transfer_cryo_schedule').select('*').eq('patient_id', patientId).order('scheduled_date', { ascending: false }),
       supabase.from('cryo_records').select('straws').eq('patient_id', patientId).eq('asset_type', 'Embryo').eq('status', 'Stored'),
       imagingPromise,
+      supabase.rpc('patient_spouse_summary', { p_patient_id: patientId }),
+      fetchPatientPhotoUrl(supabase, patientId),
     ])
     patientBio.value = bioRes.data || null
+    spouseSummary.value = spouseRes.data || null
+    patientPhotoUrl.value = photoUrl
     nurseVisits.value = nurseVisitRes.data || []
     staffNames.value = await resolveCycleManagerNames(supabase, [
       patientBio.value?.assigned_doctor_id,
@@ -386,6 +416,10 @@ function formatPastSurgeries(items: any[]) {
 
 <style scoped>
 .imaging-block { margin-top:10px; }
+.patient-photo-hero { display:flex; align-items:center; gap:15px; margin-bottom:14px; }
+.patient-photo { width:72px; height:72px; flex:0 0 72px; overflow:hidden; border:3px solid #fff; border-radius:50%; background:#fff; box-shadow:0 0 0 1px var(--border); }
+.patient-photo img { width:100%; height:100%; object-fit:cover; }
+.patient-hero-facts { flex:1; gap:10px; }
 .imaging-block > b { font-size:11.5px; }
 .imaging-block > p { margin-top:4px; white-space:pre-wrap; font-size:12px; color:var(--text-700); }
 .registration-strip { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; padding:10px 12px; border-radius:var(--radius-sm); background:var(--bg); }
@@ -399,5 +433,10 @@ function formatPastSurgeries(items: any[]) {
 .visit-history-item { margin-top:8px; padding:8px 10px; border:1px solid var(--border); border-radius:7px; }
 .visit-history-item summary { display:flex; align-items:center; justify-content:space-between; gap:8px; cursor:pointer; color:var(--text-700); font-size:11.5px; font-weight:650; }
 .visit-history-item p { margin-top:6px; color:var(--text-700); font-size:11.5px; line-height:1.45; white-space:pre-wrap; }
-@media (max-width:700px) { .registration-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }.vitals-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.spouse-detail-link { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; margin-top:8px; padding:10px 12px; border:1px solid var(--blue-100); border-radius:var(--radius-sm); background:var(--blue-50); text-align:left; font-family:inherit; }
+.spouse-detail-link b, .spouse-detail-link span { display:block; }
+.spouse-detail-link b { font-size:12.5px; }
+.spouse-detail-link > div > span { margin-top:3px; color:var(--text-500); font-size:10.5px; }
+.spouse-detail-link > .link { display:flex; align-items:center; gap:4px; color:var(--blue-600); font-size:11px; font-weight:700; white-space:nowrap; }
+@media (max-width:700px) { .patient-photo-hero { align-items:flex-start; }.patient-hero-facts { grid-template-columns:repeat(2,minmax(0,1fr)); }.registration-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }.vitals-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 </style>

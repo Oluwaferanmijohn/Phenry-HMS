@@ -31,8 +31,9 @@
 import { ref } from 'vue'
 import { fmtDate, formatTime12 } from '~/composables/useFormat'
 import { useProfile } from '~/composables/useAuth'
+import { isFertilityLabProcedure } from '~/composables/useFertilityProcedures'
 
-withDefaults(defineProps<{ allowSchedule?: boolean; canDocument?: boolean }>(), { canDocument: true })
+const props = withDefaults(defineProps<{ allowSchedule?: boolean; canDocument?: boolean; excludeFertilityProcedures?: boolean }>(), { canDocument: true, excludeFertilityProcedures: false })
 
 const supabase = useSupabaseClient()
 const profile = useProfile()
@@ -48,7 +49,9 @@ async function load() {
     .select('*, patient_names(full_name), profiles:assigned_provider_id(full_name)')
     .order('date', { ascending: true })
     .order('time', { ascending: true })
-  list.value = (data || []).map((s: any) => ({ ...s, patient_name: s.patient_names?.full_name || 'Unknown', provider_name: s.profiles?.full_name }))
+  list.value = (data || [])
+    .filter((s: any) => !props.excludeFertilityProcedures || !isFertilityLabProcedure(s.procedure))
+    .map((s: any) => ({ ...s, patient_name: s.patient_names?.full_name || 'Unknown', provider_name: s.profiles?.full_name }))
 }
 await useAsyncData('surgery-page', load)
 

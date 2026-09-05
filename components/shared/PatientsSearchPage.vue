@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="page-header"><div><h1>Patients</h1><div class="desc">Search the full patient roster.</div></div></div>
+    <div class="page-header"><div><h1>Patients</h1><div class="desc">Search the patients available within your role.</div></div></div>
     <div v-if="directoryStatus === 'pending'" class="card card-pad">
       <div class="cell-muted">Loading accessible patients…</div>
     </div>
@@ -45,8 +45,11 @@
       :lab-results="activeLabResults"
       :caps="caps"
       @start-consultation="$router.push(`/${profile?.role}/consultation?patient=${activePatient.patient_id}`)"
+      @record-vitals="$router.push(`/nurse/vitals?patient=${activePatient.patient_id}`)"
       @go-to-visit="$router.push(`/nurse/visit?patient=${activePatient.patient_id}`)"
-      @upload-external="$router.push(`/${profile?.role}/results?patient=${activePatient.patient_id}`)"
+      @enter-lab-result="$router.push(`/${profile?.role}/results?patient=${activePatient.patient_id}`)"
+      @upload-external="$router.push(`/${profile?.role}/results?patient=${activePatient.patient_id}&external=1`)"
+      @open-spouse="openLinkedSpouse"
     />
   </div>
 </template>
@@ -62,13 +65,14 @@ import { useToast } from '~/composables/useToast'
 const { loadWithCache } = useRecentPatientCache()
 const { toast } = useToast()
 
-const ROLE_PATIENT_CAPS: Record<string, { allowConsultation?: boolean; allowVisitDoc?: boolean; allowLabActions?: boolean }> = {
+type PatientActionCaps = { allowConsultation?: boolean; allowVisitDoc?: boolean; allowVitals?: boolean; allowLabEntry?: boolean; allowExternalUpload?: boolean }
+const ROLE_PATIENT_CAPS: Record<string, PatientActionCaps> = {
   doctor: { allowConsultation: true },
   matron: { allowConsultation: true },
-  nurse: { allowConsultation: false, allowVisitDoc: true },
+  nurse: { allowVitals: true, allowVisitDoc: true },
   admin_manager: { allowConsultation: false },
-  chief_embryologist: { allowConsultation: false, allowLabActions: true },
-  lab_tech: { allowConsultation: false, allowLabActions: true },
+  chief_embryologist: { allowLabEntry: true, allowExternalUpload: true },
+  lab_tech: { allowLabEntry: true, allowExternalUpload: true },
 }
 
 const supabase = useSupabaseClient()
@@ -102,6 +106,15 @@ const {
   status: directoryStatus,
   refresh: refreshDirectory,
 } = await useAsyncData<PatientDirectoryPayload>(directoryKey, async () => {
+  if (profile.value?.role === 'lab_tech') {
+    const [patientRes, cycleRes] = await Promise.all([
+      supabase.rpc('patients_lab_directory', { p_search: '' }),
+      supabase.from('cycles').select('*').neq('status', 'Closed').order('start_date', { ascending: false }),
+    ])
+    if (patientRes.error) throw patientRes.error
+    if (cycleRes.error) throw cycleRes.error
+    return { patients: patientRes.data || [], activeCycles: cycleRes.data || [] }
+  }
   return fetchClinicalPatientDirectory(supabase)
 }, {
   default: () => ({ patients: [], activeCycles: [] }),
@@ -141,14 +154,21 @@ async function openDetail(patientId: string) {
   try {
     const { data } = await loadWithCache(patientId, async () => {
       // Doctor, Matron, and Admin use the same explicit patient-context API as
-      // their workspaces. Chief Embryologist and Nurse retain their narrower
-      // existing table-RLS detail reads.
+      // their workspaces. Lab technicians keep the deliberately restricted
+      // laboratory directory and only load result records here. Chief
+      // Embryologist and Nurse retain their table-RLS detail reads.
       if (['doctor', 'matron', 'admin_manager'].includes(profile.value?.role || '')) {
         const context = await fetchClinicalPatientContext(supabase, patientId)
         return {
           consultations: context.pastConsultations,
           labResults: context.pastLabResults,
         }
+      }
+
+      if (profile.value?.role === 'lab_tech') {
+        const labRes = await supabase.from('lab_results').select('*, lab_templates(name)').eq('patient_id', patientId).order('collected_on', { ascending: false })
+        if (labRes.error) throw labRes.error
+        return { consultations: [], labResults: labRes.data || [] }
       }
 
       const [consultRes, labRes] = await Promise.all([
@@ -174,7 +194,35 @@ async function openDetail(patientId: string) {
   }
 }
 
-watch(() => route.query.patient, (patientId) => {
-  if (typeof patientId === 'string' && patients.value.some((patient) => patient.patient_id === patientId)) void openDetail(patientId)
+async function openLinkedSpouse(spousePatientId: string) {
+  const linkedFromPatientId = activePatient.value?.patient_id
+  if (!linkedFromPatientId) return
+  await openLinkedSpouseFrom(linkedFromPatientId, spousePatientId)
+}
+
+async function openLinkedSpouseFrom(linkedFromPatientId: string, spousePatientId: string) {
+  if (patients.value.some((patient) => patient.patient_id === spousePatientId)) {
+    await openDetail(spousePatientId)
+    return
+  }
+
+  const { data, error } = await supabase.rpc('linked_spouse_patient_detail', {
+    p_from_patient_id: linkedFromPatientId,
+    p_spouse_patient_id: spousePatientId,
+  })
+  if (error || !data) {
+    toast('The linked spouse details are not available to this account.', 'warn')
+    return
+  }
+  activePatient.value = data
+  activeConsultations.value = []
+  activeLabResults.value = []
+  showDetail.value = true
+}
+
+watch(() => [route.query.patient, route.query.linkedFrom] as const, ([patientId, linkedFrom]) => {
+  if (typeof patientId !== 'string') return
+  if (patients.value.some((patient) => patient.patient_id === patientId)) void openDetail(patientId)
+  else if (typeof linkedFrom === 'string') void openLinkedSpouseFrom(linkedFrom, patientId)
 }, { immediate: true })
 </script>

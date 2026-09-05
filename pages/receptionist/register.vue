@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="page-header"><div><h1>New Patient Registration</h1><div class="desc">Step {{ step }} of 3 — {{ steps[step - 1] }}</div></div></div>
+    <div class="page-header"><div><h1>New Patient Registration</h1><div class="desc">Step {{ step }} of {{ steps.length }} — {{ steps[step - 1] }}</div></div></div>
 
     <div class="card card-pad" style="max-width:700px;">
       <div class="steps" style="margin-bottom:22px;">
@@ -15,6 +15,9 @@
 
       <div v-if="step === 1">
         <b style="font-size:13px;"><Icon name="user" :size="13" /> Personal Identification</b>
+        <div style="margin-top:12px;">
+          <PatientPhotoPicker v-model="primaryPhotoFile" :patient-name="`${draft.first} ${draft.last}`.trim()" />
+        </div>
         <div class="form-row" style="margin-top:12px;">
           <div class="field"><label>Legal First Name</label><input v-model="draft.first" class="input" placeholder="e.g. Jane" /></div>
           <div class="field"><label>Surname</label><input v-model="draft.last" class="input" placeholder="e.g. Doe" /></div>
@@ -42,6 +45,42 @@
         </div>
       </div>
 
+      <div v-else-if="step === 3">
+        <b style="font-size:13px;"><Icon name="users" :size="13" /> Spouse / Partner</b>
+        <p class="cell-muted" style="margin:6px 0 14px;">Connect this patient to an existing registered partner, register both partners together, or continue without a spouse link.</p>
+        <div class="spouse-mode-grid">
+          <button type="button" :class="['spouse-mode', { active: spouseMode === 'none' }]" @click="spouseMode = 'none'"><b>No spouse link</b><span>Register this patient only</span></button>
+          <button type="button" :class="['spouse-mode', { active: spouseMode === 'existing' }]" @click="spouseMode = 'existing'"><b>Link existing patient</b><span>Choose an already registered partner</span></button>
+          <button type="button" :class="['spouse-mode', { active: spouseMode === 'new' }]" @click="spouseMode = 'new'"><b>Register partner too</b><span>Create and connect a second patient</span></button>
+        </div>
+        <div v-if="spouseMode === 'existing'" class="field" style="margin-top:16px;">
+          <label>Existing Spouse / Partner</label>
+          <input v-model="spouseSearch" class="input" placeholder="Search by patient name or ID" />
+          <div class="spouse-search-results">
+            <button v-for="patient in filteredSpousePatients" :key="patient.patient_id" type="button" :class="['spouse-result', { selected: existingSpouseId === patient.patient_id }]" @click="existingSpouseId = patient.patient_id">
+              <span><b>{{ patient.full_name }}</b><small>{{ patient.patient_id }} · {{ patient.sex || 'Sex not recorded' }}</small></span>
+              <Icon :name="existingSpouseId === patient.patient_id ? 'check-circle' : 'chevron-right'" :size="14" />
+            </button>
+          </div>
+        </div>
+        <div v-else-if="spouseMode === 'new'" class="partner-form">
+          <PatientPhotoPicker v-model="partnerPhotoFile" :patient-name="`${partner.first} ${partner.last}`.trim()" />
+          <div class="form-row">
+            <div class="field"><label>Partner Legal First Name</label><input v-model="partner.first" class="input" /></div>
+            <div class="field"><label>Partner Surname</label><input v-model="partner.last" class="input" /></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label>Partner Date of Birth</label><input v-model="partner.dob" class="input" type="date" /></div>
+            <div class="field"><label>Partner Sex at Birth</label><select v-model="partner.sex" class="input"><option>F</option><option>M</option><option>Other</option><option>Unknown</option></select></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label>Partner Phone</label><input v-model="partner.phone" class="input" /></div>
+            <div class="field"><label>Partner Email</label><input v-model="partner.email" class="input" type="email" /></div>
+          </div>
+          <div class="field"><label>Partner Address</label><textarea v-model="partner.address" class="input" rows="2" :placeholder="draft.addr || 'Leave blank to use the primary patient address'" /></div>
+        </div>
+      </div>
+
       <div v-else>
         <b style="font-size:13px;"><Icon name="clipboard" :size="13" /> Referral Source</b>
         <div class="field" style="margin-top:12px;">
@@ -56,20 +95,21 @@
 
       <div class="flex-between" style="margin-top:22px;">
         <button class="btn btn-secondary" :disabled="step === 1" @click="step--"><Icon name="chevron-left" :size="13" /> Back</button>
-        <button v-if="step < 3" class="btn btn-primary" @click="step++">Next <Icon name="arrow-right" :size="13" /></button>
+        <button v-if="step < steps.length" class="btn btn-primary" @click="nextStep">Next <Icon name="arrow-right" :size="13" /></button>
         <button v-else class="btn btn-primary" :disabled="submitting" @click="submit"><Icon name="check-circle" :size="13" /> Complete Registration</button>
       </div>
     </div>
 
-    <Modal :model-value="!!portalCredentials" title="Patient Registered" @update:model-value="closeCredentials">
+    <Modal :model-value="portalCredentials.length > 0" title="Patient Registration Complete" @update:model-value="closeCredentials">
       <div class="empty-state" style="padding:6px 0;">
         <div class="icon-wrap"><Icon name="check-circle" :size="22" /></div>
-        <h4>Portal login created</h4>
-        <p>Give the patient these details — they'll be asked to set a new password the first time they sign in.</p>
+        <h4>{{ portalCredentials.length > 1 ? 'Both portal logins were created' : 'Portal login created' }}</h4>
+        <p>Give each patient only their own temporary details. They will be required to choose a new password at first sign-in.</p>
       </div>
-      <div v-if="portalCredentials" class="card-pad" style="border:1px solid var(--border); border-radius:var(--radius-sm); margin-top:10px;">
-        <div class="flex-between"><span class="cell-muted">Patient ID (username)</span><b>{{ portalCredentials.patientId }}</b></div>
-        <div class="flex-between" style="margin-top:8px;"><span class="cell-muted">Temporary password</span><b>{{ portalCredentials.password }}</b></div>
+      <div v-for="credential in portalCredentials" :key="credential.patientId" class="card-pad credential-card">
+        <b>{{ credential.name }}</b>
+        <div class="flex-between" style="margin-top:9px;"><span class="cell-muted">Patient ID (username)</span><b class="mono">{{ credential.patientId }}</b></div>
+        <div class="flex-between" style="margin-top:8px;"><span class="cell-muted">One-time temporary password</span><b class="mono">{{ credential.password }}</b></div>
       </div>
       <template #footer>
         <button class="btn btn-primary" @click="closeCredentials"><Icon name="check-circle" :size="13" /> Done</button>
@@ -79,27 +119,65 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { computed, ref, reactive } from 'vue'
 import { useToast } from '~/composables/useToast'
+import { uploadPatientPhoto } from '~/composables/usePatientPhoto'
 
 const supabase = useSupabaseClient()
 const { toast } = useToast()
 const router = useRouter()
 
-const steps = ['Personal Details', 'Contact & Emergency', 'Referral']
+const steps = ['Personal Details', 'Contact & Emergency', 'Spouse / Partner', 'Referral & Consent']
 const step = ref(1)
 const submitting = ref(false)
+const primaryPhotoFile = ref<File | null>(null)
+const partnerPhotoFile = ref<File | null>(null)
 
 const draft = reactive({
   first: '', last: '', dob: '', sex: 'F',
   phone: '', email: '', addr: '', ecName: '', ecRel: '', ecPhone: '',
   ref: 'Instagram Ad', consent: true,
 })
+const spouseMode = ref<'none' | 'existing' | 'new'>('none')
+const existingSpouseId = ref('')
+const spouseSearch = ref('')
+const spousePatients = ref<any[]>([])
+const partner = reactive({ first: '', last: '', dob: '', sex: 'M', phone: '', email: '', address: '' })
 
-const portalCredentials = ref<{ patientId: string; password: string } | null>(null)
+await useAsyncData('registration-spouse-directory', async () => {
+  const { data } = await supabase.rpc('reception_spouse_directory', { p_search: '' })
+  spousePatients.value = data || []
+  return true
+})
+
+const filteredSpousePatients = computed(() => {
+  const query = spouseSearch.value.trim().toLowerCase()
+  return spousePatients.value
+    .filter((patient) => !patient.spouse_patient_id)
+    .filter((patient) => !query || `${patient.full_name} ${patient.patient_id}`.toLowerCase().includes(query))
+    .slice(0, 8)
+})
+
+const portalCredentials = ref<{ patientId: string; password: string; name: string }[]>([])
 function closeCredentials() {
-  portalCredentials.value = null
+  portalCredentials.value = []
   router.push('/receptionist/patients')
+}
+
+function nextStep() {
+  if (step.value === 1 && (!draft.first.trim() || !draft.last.trim() || !draft.dob)) {
+    toast('First name, surname, and date of birth are required', 'warn')
+    return
+  }
+  if (step.value === 3 && spouseMode.value === 'existing' && !existingSpouseId.value) {
+    toast('Select the existing spouse, or choose another spouse option.', 'warn')
+    return
+  }
+  if (step.value === 3 && spouseMode.value === 'new' && (!partner.first.trim() || !partner.last.trim() || !partner.dob)) {
+    toast('Partner first name, surname, and date of birth are required.', 'warn')
+    return
+  }
+  step.value++
 }
 
 async function submit() {
@@ -109,12 +187,12 @@ async function submit() {
     return
   }
   if (!draft.consent) {
-    step.value = 3
+    step.value = 4
     toast('Patient consent must be confirmed before registration', 'warn')
     return
   }
   submitting.value = true
-  const { data, error } = await supabase.rpc('register_new_patient', {
+  const { data, error } = await supabase.rpc('register_new_patient_with_partner', {
     p_first: draft.first,
     p_last: draft.last,
     p_dob: draft.dob,
@@ -126,34 +204,76 @@ async function submit() {
     p_ec_relationship: draft.ecRel,
     p_ec_phone: draft.ecPhone,
     p_referral_source: draft.ref,
+    p_existing_spouse_id: spouseMode.value === 'existing' ? existingSpouseId.value : null,
+    p_new_spouse: spouseMode.value === 'new' ? { ...partner } : null,
   })
 
-  if (error || !data?.length) {
+  if (error || !data?.patient_id) {
     submitting.value = false
-    toast('Could not register the patient — please try again', 'warn')
+    toast(error?.message || 'Could not register the patient — please try again', 'warn')
     return
   }
 
-  const mrn = data[0].mrn
-  const consentResult = await supabase.rpc('record_registration_consent', { p_patient_id: mrn })
-  if (consentResult.error) toast('Patient registered, but the consent timestamp could not be recorded', 'warn')
+  const mrn = data.patient_id as string
+  const spouseMrn = data.spouse_patient_id as string | null
+  const newlyRegisteredIds = [mrn, data.spouse_created ? spouseMrn : null].filter(Boolean) as string[]
+  const consentResults = await Promise.all(newlyRegisteredIds.map((patientId) => supabase.rpc('record_registration_consent', { p_patient_id: patientId })))
+  if (consentResults.some((result) => result.error)) toast('Registration succeeded, but a consent timestamp could not be recorded', 'warn')
+
+  const photoUploads: Array<{ patientId: string; file: File; name: string }> = []
+  if (primaryPhotoFile.value) photoUploads.push({ patientId: mrn, file: primaryPhotoFile.value, name: `${draft.first.trim()} ${draft.last.trim()}` })
+  if (data.spouse_created && spouseMrn && partnerPhotoFile.value) photoUploads.push({ patientId: spouseMrn, file: partnerPhotoFile.value, name: `${partner.first.trim()} ${partner.last.trim()}` })
+  for (const photo of photoUploads) {
+    try { await uploadPatientPhoto(supabase, photo.patientId, photo.file) }
+    catch (photoError: any) { toast(`${photo.name} was registered, but their picture could not be saved: ${photoError?.message || 'upload failed'}`, 'warn') }
+  }
 
   // Registration and portal-account creation are two separate calls — the
   // account needs the service-role key (server route), the RPC doesn't.
   // A failure here still leaves the patient successfully registered; it
   // just means Admin needs to set up their login separately, which is
   // surfaced clearly rather than silently losing that step.
-  try {
-    const account = await $fetch<{ tempPassword?: string; alreadyExists?: boolean }>('/api/receptionist/create-patient-account', { method: 'POST', body: { patientId: mrn } })
-    if (account.tempPassword) portalCredentials.value = { patientId: mrn, password: account.tempPassword }
-    else toast(`${draft.first} ${draft.last} registered (${mrn}); the portal login already exists, so no password was changed.`, 'warn')
-  } catch (e: any) {
-    toast(`${draft.first} ${draft.last} registered (${mrn}), but the portal login could not be created — ask Admin to set it up.`, 'warn')
+  const accountNames = new Map<string, string>([
+    [mrn, `${draft.first.trim()} ${draft.last.trim()}`],
+    ...(data.spouse_created && spouseMrn ? [[spouseMrn, `${partner.first.trim()} ${partner.last.trim()}`] as [string, string]] : []),
+  ])
+  for (const patientId of newlyRegisteredIds) {
+    try {
+      const account = await $fetch<{ tempPassword?: string; alreadyExists?: boolean }>('/api/receptionist/create-patient-account', { method: 'POST', body: { patientId } })
+      if (account.tempPassword) portalCredentials.value.push({ patientId, password: account.tempPassword, name: accountNames.get(patientId) || patientId })
+      else toast(`${accountNames.get(patientId) || patientId} was registered, but the portal login already existed and its password was not changed.`, 'warn')
+    } catch {
+      toast(`${accountNames.get(patientId) || patientId} was registered, but the portal login could not be created — ask Admin to set it up.`, 'warn')
+    }
   }
 
   submitting.value = false
   step.value = 1
   Object.assign(draft, { first: '', last: '', dob: '', sex: 'F', phone: '', email: '', addr: '', ecName: '', ecRel: '', ecPhone: '', ref: 'Instagram Ad', consent: true })
-  if (!portalCredentials.value) router.push('/receptionist/patients')
+  Object.assign(partner, { first: '', last: '', dob: '', sex: 'M', phone: '', email: '', address: '' })
+  spouseMode.value = 'none'
+  existingSpouseId.value = ''
+  spouseSearch.value = ''
+  primaryPhotoFile.value = null
+  partnerPhotoFile.value = null
+  if (!portalCredentials.value.length) router.push('/receptionist/patients')
 }
 </script>
+
+<style scoped>
+.spouse-mode-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.spouse-mode { border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:#fff; padding:13px; text-align:left; color:var(--text-700); font-family:inherit; }
+.spouse-mode b, .spouse-mode span { display:block; }
+.spouse-mode b { font-size:12.5px; color:var(--text-900); }
+.spouse-mode span { margin-top:4px; font-size:10.5px; color:var(--text-500); line-height:1.35; }
+.spouse-mode.active { border-color:var(--blue-500); background:var(--blue-50); box-shadow:0 0 0 2px var(--blue-50); }
+.partner-form { margin-top:16px; padding:14px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); }
+.spouse-search-results { display:flex; flex-direction:column; gap:6px; max-height:270px; overflow-y:auto; margin-top:8px; }
+.spouse-result { display:flex; align-items:center; justify-content:space-between; width:100%; padding:10px 11px; border:1px solid var(--border); border-radius:8px; background:#fff; text-align:left; color:var(--text-700); font-family:inherit; }
+.spouse-result span, .spouse-result small { display:block; }
+.spouse-result b { font-size:12px; color:var(--text-900); }
+.spouse-result small { margin-top:2px; color:var(--text-500); font-size:10.5px; }
+.spouse-result.selected { border-color:var(--blue-500); background:var(--blue-50); color:var(--blue-600); }
+.credential-card { border:1px solid var(--border); border-radius:var(--radius-sm); margin-top:10px; }
+@media (max-width:700px) { .spouse-mode-grid { grid-template-columns:1fr; } }
+</style>

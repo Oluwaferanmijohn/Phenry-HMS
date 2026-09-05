@@ -19,7 +19,7 @@
             <div v-if="!labResults.length" style="padding:20px;">
               <EmptyState icon="file" title="No results yet" description="Lab results will appear here once your samples are processed." />
             </div>
-            <div v-for="r in labResults" :key="r.id" class="list-row">
+            <button v-for="r in labResults" :key="r.id" type="button" class="list-row patient-result-row" @click="openResult(r)">
               <div class="icon-wrap" style="background:var(--blue-50); color:var(--blue-600); width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;">
                 <Icon name="file" :size="15" />
               </div>
@@ -28,9 +28,9 @@
                 <div class="sub-txt">{{ fmtDate(r.collected_on) }}{{ r.remarks ? ' · ' + r.remarks : '' }}</div>
               </div>
               <div class="side">
-                <button class="icon-btn" :disabled="downloadingId === r.id" @click="downloadResult(r)"><Icon name="download" :size="14" /></button>
+                <span class="result-action"><Icon :name="r.external ? 'download' : 'printer'" :size="14" /> {{ r.external ? 'Open file' : 'View / Print' }}</span>
               </div>
-            </div>
+            </button>
           </div>
         </div>
         <div class="card card-pad" style="margin-top:16px; background:var(--blue-50); border-color:var(--blue-100);">
@@ -60,6 +60,7 @@
         </div>
       </template>
     </div>
+    <LabResultReportModal v-model="showReport" :result-id="selectedResultId" />
   </div>
 </template>
 
@@ -78,6 +79,8 @@ const activeTab = ref<'lab' | 'inv'>('lab')
 const labResults = ref<any[]>([])
 const milestones = ref<any[]>([])
 const downloadingId = ref<string | null>(null)
+const showReport = ref(false)
+const selectedResultId = ref('')
 
 const { data } = await useAsyncData(`patient-results-${patientId}`, async () => {
   const [labRes, planRes] = await Promise.all([
@@ -93,9 +96,10 @@ if (data.value) {
   milestones.value = data.value.milestones
 }
 
-async function downloadResult(r: any) {
+async function openResult(r: any) {
   if (!r.external_file_url) {
-    toast(`Downloading ${r.lab_templates?.name || 'result'}…`)
+    selectedResultId.value = r.id
+    showReport.value = true
     return
   }
   // external_file_url is a storage path (e.g. "PT-001/169..."), not a
@@ -111,3 +115,9 @@ async function downloadResult(r: any) {
   window.open(data.signedUrl, '_blank')
 }
 </script>
+
+<style scoped>
+.patient-result-row { width:100%; border:0; background:transparent; text-align:left; font-family:inherit; cursor:pointer; }
+.patient-result-row:hover { background:var(--bg); }
+.result-action { display:inline-flex; align-items:center; gap:6px; color:var(--blue-600); font-size:11.5px; font-weight:700; white-space:nowrap; }
+</style>

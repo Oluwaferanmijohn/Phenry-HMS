@@ -124,6 +124,7 @@
       :consultations="pastConsultations"
       :lab-results="pastLabResults"
       :caps="{}"
+      @open-spouse="$router.push(`/doctor/patients?patient=${$event}&linkedFrom=${patient.patient_id}`)"
     />
 
     <Modal v-model="showStudyEditor" :title="studyEditorTitle" wide>

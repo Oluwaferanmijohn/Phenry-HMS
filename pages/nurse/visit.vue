@@ -30,13 +30,10 @@
           <b style="font-size:12px;"><Icon name="user" :size="11" /> Spouse / Partner</b>
           <template v-if="patient.spouse_patient_id">
             <p style="font-size:12.5px; margin-top:6px;">{{ spouseName || 'Linked patient' }}</p>
-            <span class="link" style="font-size:11.5px;" @click="unlinkSpouse">Unlink</span>
+            <p class="cell-muted" style="font-size:10.5px; margin-top:3px;">{{ patient.spouse_patient_id }}</p>
           </template>
           <template v-else>
-            <input v-model="spouseSearch" class="input" style="font-size:12px; margin-top:8px;" placeholder="Search by name or ID…" @input="searchSpouse" />
-            <div v-if="spouseResults.length" style="margin-top:6px; display:flex; flex-direction:column; gap:4px;">
-              <div v-for="r in spouseResults" :key="r.patient_id" class="link" style="font-size:12px;" @click="linkSpouse(r.patient_id)">{{ r.full_name }} ({{ r.patient_id }})</div>
-            </div>
+            <p class="cell-muted" style="font-size:11px; margin-top:6px; line-height:1.45;">No spouse is linked. Reception can add one from the patient details page.</p>
           </template>
         </div>
 
@@ -292,49 +289,8 @@ async function finalize() {
   saving.value = false
 }
 
-// ---- Spouse / partner linking ----
+// Spouse details are read-only here. Reception owns spouse linking.
 const spouseName = ref('')
-const spouseSearch = ref('')
-const spouseResults = ref<any[]>([])
-let spouseSearchTimer: ReturnType<typeof setTimeout> | null = null
-
-function searchSpouse() {
-  if (spouseSearchTimer) clearTimeout(spouseSearchTimer)
-  const q = spouseSearch.value.trim()
-  if (!q) {
-    spouseResults.value = []
-    return
-  }
-  spouseSearchTimer = setTimeout(async () => {
-    const { data } = await supabase.from('patient_names').select('patient_id, full_name').ilike('full_name', `%${q}%`).limit(5)
-    spouseResults.value = (data || []).filter((r: any) => r.patient_id !== patient.value?.patient_id)
-  }, 300)
-}
-
-async function linkSpouse(spouseId: string) {
-  if (!patient.value) return
-  const targetPatientId = patient.value.patient_id
-  const { error } = await supabase.from('bio_details').update({ spouse_patient_id: spouseId }).eq('patient_id', targetPatientId)
-  if (error) {
-    toast('Could not link partner', 'warn')
-    return
-  }
-  patient.value.spouse_patient_id = spouseId
-  spouseSearch.value = ''
-  spouseResults.value = []
-  const { data } = await supabase.from('patient_names').select('full_name').eq('patient_id', spouseId).maybeSingle()
-  spouseName.value = data?.full_name || ''
-  toast('Partner linked', 'success')
-}
-
-async function unlinkSpouse() {
-  if (!patient.value) return
-  const targetPatientId = patient.value.patient_id
-  const { error } = await supabase.from('bio_details').update({ spouse_patient_id: null }).eq('patient_id', targetPatientId)
-  if (error) return
-  patient.value.spouse_patient_id = null
-  spouseName.value = ''
-}
 
 // ---- Signed consent form ----
 const consentFileInput = ref<HTMLInputElement | null>(null)
