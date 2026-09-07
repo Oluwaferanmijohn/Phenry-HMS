@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <div v-if="modelValue" class="modal-overlay" @mousedown.self="close">
-      <div class="modal" :class="{ wide }">
+      <div class="modal" :class="{ wide, workspace }">
         <div class="modal-head">
           <h3>{{ title }}</h3>
           <button class="modal-close" @click="close"><Icon name="x-circle" :size="16" /></button>
@@ -18,7 +18,12 @@
 </template>
 
 <script setup lang="ts">
-withDefaults(defineProps<{ modelValue: boolean; title: string; wide?: boolean }>(), { wide: false })
+withDefaults(defineProps<{
+  modelValue: boolean
+  title: string
+  wide?: boolean
+  workspace?: boolean
+}>(), { wide: false, workspace: false })
 const emit = defineEmits<{ 'update:modelValue': [boolean] }>()
 function close() {
   emit('update:modelValue', false)

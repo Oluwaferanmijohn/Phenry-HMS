@@ -26,7 +26,7 @@
     </div>
 
     <StartCycleModal v-model="showStart" :role="role" @started="load" />
-    <CycleDetailModal v-model="showDetail" :cycle-id="detailCycleId" :patient-name="detailPatientName" :role="role" :can-manage="role === 'matron'" @updated="load" />
+    <CycleDetailModal v-model="showDetail" :cycle-id="detailCycleId" :patient-name="detailPatientName" :role="role" :can-manage="['matron', 'nurse', 'doctor'].includes(role)" @updated="load" />
   </div>
 </template>
 
@@ -37,7 +37,7 @@ import { resolveCycleManagerNames } from '~/composables/useCycleManagerNames'
 const props = defineProps<{ role: string; allowCreate?: boolean }>()
 
 const supabase = useSupabaseClient()
-const STAGES = ['Baseline', 'Stimulation', 'OPU', 'Transfer']
+const STAGES = ['Baseline', 'Down-Regulation', 'Stimulation', 'OPU', 'Transfer']
 
 const active = ref<any[]>([])
 const showStart = ref(false)
@@ -81,7 +81,7 @@ await useAsyncData(`macro-cycle-view-${props.role}`, load)
 
 function stagePct(stage: string) {
   const idx = STAGES.indexOf(stage)
-  return idx >= 0 ? ((idx + 1) / 4) * 100 : 5
+  return idx >= 0 ? ((idx + 1) / STAGES.length) * 100 : 5
 }
 
 function openDetail(c: any) {

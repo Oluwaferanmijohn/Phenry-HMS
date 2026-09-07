@@ -23,12 +23,14 @@ test('embryology procedure queue reads doctor and matron schedules and preserves
 })
 
 test('fertility reports and frozen specimen locations are structured and role secured', async () => {
-  const [migration, report, cryo, grading, roleMeta] = await Promise.all([
+  const [migration, report, cryo, grading, roleMeta, labSchedule, labCryo] = await Promise.all([
     read('supabase/migrations/20260905160000_embryology_procedure_and_cryo_workspace.sql'),
     read('components/shared/FertilityProcedureReportModal.vue'),
     read('components/chief/CryoLogModal.vue'),
     read('components/shared/EmbryoGradingPage.vue'),
     read('composables/useRoleMeta.ts'),
+    read('pages/lab_tech/schedule.vue'),
+    read('pages/lab_tech/cryo.vue'),
   ])
   assert.match(migration, /fertility_procedure_reports/)
   assert.match(migration, /save_fertility_procedure_report/)
@@ -44,4 +46,19 @@ test('fertility reports and frozen specimen locations are structured and role se
   assert.match(grading, /Store Embryos/)
   assert.match(roleMeta, /Fertility Procedures & Cryostorage/)
   assert.match(roleMeta, /Other Surgery/)
+  assert.match(labSchedule, /TransferCryoSchedulePage role="lab_tech"/)
+  assert.match(labCryo, /EmbryologyProcedureWorkspacePage role="lab_tech" initial-tab="storage"/)
+})
+
+test('chief embryologist and lab technician use the same laboratory dashboard and workflows', async () => {
+  const [overview, chiefPage, labPage, roleMeta] = await Promise.all([
+    read('components/shared/LabOverviewPage.vue'),
+    read('pages/chief_embryologist/overview.vue'),
+    read('pages/lab_tech/overview.vue'),
+    read('composables/useRoleMeta.ts'),
+  ])
+  assert.match(chiefPage, /LabOverviewPage role="chief_embryologist"/)
+  assert.match(labPage, /LabOverviewPage role="lab_tech"/)
+  for (const feature of ['Enter Lab Results', 'Embryo Grading', 'Procedures &amp; Cryostorage', 'Equipment &amp; Supplies']) assert.match(overview, new RegExp(feature))
+  assert.match(roleMeta, /id: 'overview', label: 'Laboratory Dashboard'/)
 })

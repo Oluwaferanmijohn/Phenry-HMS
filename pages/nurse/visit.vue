@@ -4,9 +4,7 @@
       <div><h1>Clinical Visit Documentation</h1><div class="desc">{{ fmtDate(new Date()) }} · Routine Monitoring</div></div>
       <div class="page-actions">
         <NuxtLink :to="`/nurse/vitals?patient=${patient.patient_id}`" class="btn btn-secondary"><Icon name="activity" :size="13" /> Full Vitals</NuxtLink>
-        <select class="input" :value="patient.patient_id" @change="switchPatient(($event.target as HTMLSelectElement).value)">
-          <option v-for="p in patients" :key="p.patient_id" :value="p.patient_id">{{ p.full_name }}</option>
-        </select>
+        <ClinicalPatientFinder :model-value="patient.patient_id" allow-walk-in @selected="onFinderPatient" />
       </div>
     </div>
     <div class="grid" style="grid-template-columns:220px 1fr; gap:20px; align-items:start;">
@@ -203,6 +201,10 @@ function switchPatient(patientId: string) {
   resetForm()
   void router.replace({ query: { ...route.query, patient: patientId } })
   void loadPatient(patientId)
+}
+function onFinderPatient(entry: any) {
+  if (!patients.value.some((patient) => patient.patient_id === entry.patient_id)) patients.value.push(entry)
+  switchPatient(entry.patient_id)
 }
 
 // Saved incrementally (upserted on every "Save & Proceed", not only at the

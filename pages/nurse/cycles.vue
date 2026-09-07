@@ -1,1 +1,1 @@
-<template><MacroCycleView role="nurse" :allow-create="false" /></template>
+<template><MacroCycleView role="nurse" :allow-create="true" /></template>

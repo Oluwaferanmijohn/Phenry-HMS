@@ -1,10 +1,10 @@
 <template>
-  <Modal :model-value="modelValue" :title="cycle ? patientName + ' — ' + cycle.type + ' · Cycle ' + cycle.cycle_number : ''" wide @update:model-value="$emit('update:modelValue', $event)">
+  <Modal :model-value="modelValue" :title="cycle ? patientName + ' — ' + cycle.type + ' · Cycle ' + cycle.cycle_number : ''" wide workspace @update:model-value="$emit('update:modelValue', $event)">
     <template v-if="cycle">
       <div class="card-pad" style="border:1px solid var(--blue-100); background:var(--blue-50); border-radius:var(--radius-sm); margin-bottom:14px;">
         <div class="flex-between">
           <b style="color:var(--blue-700); font-size:13px;"><Icon name="activity" :size="14" /> Current Phase — {{ cycle.stage }}</b>
-          <Badge :tone="cycle.status === 'Closed' ? 'gray' : 'blue'">{{ cycle.status === 'Closed' ? 'Closed' : `Cycle Day ${cycle.cycle_day}` }}</Badge>
+          <Badge :tone="cycle.status === 'Closed' ? 'gray' : 'blue'">{{ cycle.status === 'Closed' ? 'Closed' : `${cycle.stage} Day ${cycle.cycle_day}` }}</Badge>
         </div>
         <p style="font-size:12px; color:var(--text-700); margin-top:6px;">{{ cycle.physician_notes }}</p>
         <p v-if="cycle.status === 'Closed'" style="font-size:12px; color:var(--text-700); margin-top:6px;"><b>Outcome:</b> {{ cycle.outcome }}</p>
@@ -66,7 +66,7 @@ const emit = defineEmits<{ 'update:modelValue': [boolean]; updated: [] }>()
 const supabase = useSupabaseClient()
 const { queueOrRun } = useSyncQueue()
 
-const STAGES = ['Baseline', 'Stimulation', 'OPU', 'Transfer']
+const STAGES = ['Baseline', 'Down-Regulation', 'Stimulation', 'OPU', 'Transfer']
 
 const cycle = ref<any>(null)
 const cycleManagerName = ref('')
@@ -79,10 +79,8 @@ const showReassign = ref(false)
 const reassignNurseId = ref('')
 const reassigning = ref(false)
 
-// Day-to-day chart entries are the one thing Nurse can write directly (per
-// nurse_role.sql's own cycle_daily_logs policy) — separate from canManage
-// (stage-advance/close), which stays Matron-only.
-const canEditChart = computed(() => props.role === 'nurse')
+// Doctor, Matron, and Nurse share operational cycle-management permissions.
+const canEditChart = computed(() => ['doctor', 'matron', 'nurse'].includes(props.role || ''))
 
 const nextStage = computed(() => {
   if (!cycle.value || cycle.value.status === 'Closed') return null

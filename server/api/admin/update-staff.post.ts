@@ -1,6 +1,6 @@
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 
-const FIXED_STAFF_ROLES = new Set(['receptionist', 'admin_manager', 'doctor', 'matron', 'nurse', 'chief_embryologist', 'lab_tech', 'pharmacy', 'stakeholder'])
+const FIXED_STAFF_ROLES = new Set(['receptionist', 'admin_manager', 'doctor', 'visiting_doctor', 'matron', 'nurse', 'chief_embryologist', 'lab_tech', 'pharmacy', 'stakeholder'])
 
 export default defineEventHandler(async (event) => {
   const caller = await serverSupabaseUser(event)

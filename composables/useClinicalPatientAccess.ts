@@ -44,7 +44,18 @@ export async function fetchClinicalPatientDirectory(
   supabase: AppSupabaseClient,
 ): Promise<ClinicalPatientDirectoryPayload> {
   const { data, error } = await supabase.rpc('clinical_patient_directory')
-  if (error) throw error
+  if (error) {
+    // Keep the shared patient page usable while an older database is still
+    // missing the directory RPC or PostgREST is refreshing its schema cache.
+    // RLS still applies to both reads; this is not a permission bypass.
+    const [patientsResult, cyclesResult] = await Promise.all([
+      supabase.from('patient_names').select('patient_id, first_name, surname, full_name, bio_details(dob, sex, status)').order('full_name'),
+      supabase.from('cycles').select('*').neq('status', 'Closed').order('start_date', { ascending: false }),
+    ])
+    if (patientsResult.error && cyclesResult.error) throw error
+    const patients = (patientsResult.data || []).map((row: any) => ({ ...row, ...(Array.isArray(row.bio_details) ? row.bio_details[0] : row.bio_details || {}) }))
+    return { patients, activeCycles: cyclesResult.data || [] }
+  }
   if (!data || typeof data !== 'object' || Array.isArray(data)) return emptyDirectory()
 
   const payload = data as Record<string, unknown>

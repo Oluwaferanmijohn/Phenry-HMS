@@ -34,7 +34,7 @@
             <div><div class="muted" style="font-size:10.5px;">BLOOD GRP</div><div style="font-weight:700; font-size:13px;">{{ patient.blood_group || '—' }}</div></div>
             <div><div class="muted" style="font-size:10.5px;">AGE</div><div style="font-weight:700; font-size:13px;">{{ computeAge(patient.dob) }}</div></div>
             <div><div class="muted" style="font-size:10.5px;">ALLERGIES</div><div style="font-weight:700; font-size:13px;" :style="{ color: patient.allergies?.length ? 'var(--red-600)' : 'var(--text-900)' }">{{ patient.allergies?.join(', ') || 'None' }}</div></div>
-            <div><div class="muted" style="font-size:10.5px;">CYCLE</div><div style="font-weight:700; font-size:13px;">{{ cycle ? `${cycle.stage} · D${cycle.cycle_day}` : '—' }}</div></div>
+            <div><div class="muted" style="font-size:10.5px;">CYCLE</div><div style="font-weight:700; font-size:13px;">{{ cycle ? `${cycle.stage} · Day ${cycle.cycle_day}` : '—' }}</div></div>
           </div>
 
           <div v-if="cycle" class="cell-muted" style="margin-bottom:10px;"><Icon name="user" :size="11" /> Cycle Manager: <b style="color:var(--text-900);">{{ cycleManagerName || 'Unassigned' }}</b></div>
@@ -100,7 +100,7 @@
         </div>
 
         <div v-if="cycle" class="card card-pad">
-          <CycleDayChart :cycle-id="cycle.id" :start-date="cycle.start_date" :can-edit="false" />
+          <CycleDayChart :cycle-id="cycle.id" :start-date="cycle.start_date" :can-edit="true" :patient-name="patient.full_name" :patient-id="patient.patient_id" />
         </div>
 
         <div class="card card-pad">
@@ -162,6 +162,7 @@ const TEST_OPTIONS = ['SFA (Semen Fluid Analysis)', 'Hormonal Panel (FSH, LH, E2
 // when that role is built.
 const CONSULT_CAPS: Record<string, { allowScheduleAppointment?: boolean }> = {
   doctor: { allowScheduleAppointment: false },
+  visiting_doctor: { allowScheduleAppointment: false },
   matron: { allowScheduleAppointment: true },
 }
 

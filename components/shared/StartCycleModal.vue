@@ -14,10 +14,25 @@
       </div>
       <div class="field">
         <label>Protocol</label>
-        <select v-model="protocol" class="input"><option>Antagonist Protocol</option><option>Long Agonist Protocol</option><option>Natural Cycle</option></select>
+        <select v-model="protocol" class="input"><option>Standard Buserelin Protocol</option><option>Antagonist Protocol</option><option>Long Agonist Protocol</option><option>Natural Cycle</option></select>
       </div>
     </div>
-    <div class="field"><label>Cycle Start Date (Day 1)</label><input v-model="startDate" class="input" type="date" /></div>
+    <div class="field">
+      <label>Reusable Cycle Template</label>
+      <select v-model="templateId" class="input">
+        <option value="">No saved template — use the selected protocol</option>
+        <option v-for="template in templates" :key="template.id" :value="template.id">
+          {{ template.name }}{{ template.is_system ? ' · Hospital default' : '' }}
+        </option>
+      </select>
+      <div v-if="selectedTemplate?.description" class="template-preview">
+        <Icon name="layers" :size="13" />
+        <span><b>{{ selectedTemplate.name }}</b>{{ selectedTemplate.description }}</span>
+      </div>
+      <div v-else class="hint">Saved templates copy the planned days, medicines and procedures. Patient-specific records and signatures are never copied.</div>
+      <div v-if="templateLoadError" class="hint template-error">{{ templateLoadError }}</div>
+    </div>
+    <div class="field"><label>Cycle Start Date (Down-Regulation Day 1)</label><input v-model="startDate" class="input" type="date" /><div class="hint">The standard Buserelin daily chart is created automatically and can be adjusted for the patient.</div></div>
     <div class="field">
       <label>Cycle Manager (Fertility Nurse){{ nurses.length ? '' : ' — optional' }}</label>
       <select v-model="cycleManagerId" class="input">
@@ -34,9 +49,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useSyncQueue } from '~/composables/useSyncQueue'
-import { ROLE_META } from '~/composables/useRoleMeta'
 
 const props = defineProps<{ modelValue: boolean; role: string }>()
 const emit = defineEmits<{ 'update:modelValue': [boolean]; started: [] }>()
@@ -46,74 +60,74 @@ const { queueOrRun } = useSyncQueue()
 
 const eligible = ref<any[]>([])
 const nurses = ref<any[]>([])
+const templates = ref<any[]>([])
 const patientId = ref('')
 const cycleManagerId = ref('')
+const templateId = ref('')
 const type = ref('IVF Cycle')
-const protocol = ref('Antagonist Protocol')
+const protocol = ref('Standard Buserelin Protocol')
 const startDate = ref(new Date().toISOString().slice(0, 10))
 const submitting = ref(false)
+const templateLoadError = ref('')
+const selectedTemplate = computed(() => templates.value.find((template) => template.id === templateId.value))
 
 watch(
   () => props.modelValue,
   async (open) => {
     if (!open) return
     cycleManagerId.value = ''
-    const [namesRes, cyclesRes, nursesRes] = await Promise.all([
+    templateLoadError.value = ''
+    const [namesRes, cyclesRes, nursesRes, templatesRes] = await Promise.all([
       supabase.from('patient_names').select('patient_id, full_name').order('full_name', { ascending: true }),
       supabase.from('cycles').select('patient_id').neq('status', 'Closed'),
       supabase.from('profiles').select('id, full_name').eq('role', 'nurse').order('full_name', { ascending: true }),
+      supabase.from('cycle_templates').select('id, name, description, cycle_type, protocol, is_system').eq('active', true).order('is_system', { ascending: false }).order('name'),
     ])
     const withActiveCycle = new Set((cyclesRes.data || []).map((c: any) => c.patient_id))
     eligible.value = (namesRes.data || []).filter((p: any) => !withActiveCycle.has(p.patient_id))
     nurses.value = nursesRes.data || []
+    templates.value = templatesRes.data || []
+    templateLoadError.value = templatesRes.error
+      ? 'Run the reusable cycle-template SQL update to enable saved templates.'
+      : ''
+    templateId.value = templates.value.find((template) => template.is_system)?.id || ''
   }
 )
+
+watch(templateId, (id) => {
+  const template = templates.value.find((item) => item.id === id)
+  if (!template) return
+  if (template.cycle_type) type.value = template.cycle_type
+  if (template.protocol) protocol.value = template.protocol
+})
 
 async function submit() {
   if (!patientId.value) return
   submitting.value = true
-  const providerLabel = ROLE_META[props.role]?.label || props.role
   const targetPatientId = patientId.value
   const targetType = type.value
   const targetProtocol = protocol.value
   const targetStartDate = startDate.value
   const targetCycleManagerId = cycleManagerId.value || null
 
-  // Cycle numbering + history. "Eligible" above only excludes patients with
-  // a CURRENTLY active cycle — a returning patient starting their 3rd
-  // attempt after their prior cycles closed is still eligible, and needs
-  // cycle_number to reflect that, not a hardcoded 1. cycles.prior_cycles
-  // jsonb already exists in the schema for exactly this (a per-cycle
-  // summary snapshot) but had never been written to.
-  const { data: priorCycles } = await supabase
-    .from('cycles')
-    .select('cycle_number, type, protocol, start_date, opu_date, transfer_date, outcome, status')
-    .eq('patient_id', targetPatientId)
-    .order('cycle_number', { ascending: true })
-  const cycleNumber = (priorCycles?.length || 0) + 1
-
-  await queueOrRun(`${targetType} started`, [
-    {
-      table: 'cycles',
-      kind: 'insert',
-      payload: {
-        patient_id: targetPatientId,
-        cycle_number: cycleNumber,
-        prior_cycles: priorCycles || [],
-        protocol: targetProtocol,
-        type: targetType,
-        start_date: targetStartDate,
-        stage: 'Baseline',
-        cycle_day: 1,
-        status: 'Active',
-        cycle_manager_id: targetCycleManagerId,
-        physician_notes: `Cycle started by ${providerLabel}.`,
-      },
+  await queueOrRun(`${targetType} started`, {
+    kind: 'rpc',
+    rpcName: 'start_fertility_cycle',
+    payload: {
+      p_patient_id: targetPatientId,
+      p_type: targetType,
+      p_protocol: targetProtocol,
+      p_start_date: targetStartDate,
+      p_cycle_manager_id: targetCycleManagerId,
+      p_template_id: templateId.value || null,
     },
-    { table: 'bio_details', kind: 'update', payload: { status: 'Active' }, match: { patient_id: targetPatientId } },
-  ])
+  })
   submitting.value = false
   emit('started')
   emit('update:modelValue', false)
 }
 </script>
+
+<style scoped>
+.template-preview{display:flex;align-items:flex-start;gap:8px;margin-top:7px;padding:9px 10px;border:1px solid var(--blue-100);border-radius:8px;background:var(--blue-50);color:var(--text-600);font-size:11px;line-height:1.45}.template-preview b{display:block;color:var(--text-800);margin-bottom:2px}.template-error{color:var(--amber-700)}
+</style>

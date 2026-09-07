@@ -61,7 +61,7 @@
         <!-- Current cycle phase -->
         <div v-if="activeCycle" class="card card-pad" style="border-color:var(--blue-100); background:var(--blue-50);">
           <div class="flex-between">
-            <h3 style="font-size:14.5px; color:var(--blue-700);"><Icon name="layers" :size="15" /> Current Phase — Cycle Day {{ activeCycle.cycle_day }}</h3>
+            <h3 style="font-size:14.5px; color:var(--blue-700);"><Icon name="layers" :size="15" /> {{ activeCycle.stage }} — Day {{ activeCycle.cycle_day }}</h3>
             <Badge tone="blue">{{ activeCycle.stage }}</Badge>
           </div>
           <p style="font-size:12.5px; color:var(--text-700); margin-top:8px;">Daily hormone injections to stimulate follicle growth, accompanied by regular ultrasound monitoring scans.</p>

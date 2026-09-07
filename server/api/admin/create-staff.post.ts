@@ -14,7 +14,7 @@ import { createClient } from '@supabase/supabase-js'
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 import { generateTemporaryPassword } from '~/server/utils/temporaryPassword'
 
-const FIXED_STAFF_ROLES = new Set(['receptionist', 'admin_manager', 'doctor', 'matron', 'nurse', 'chief_embryologist', 'lab_tech', 'pharmacy', 'stakeholder'])
+const FIXED_STAFF_ROLES = new Set(['receptionist', 'admin_manager', 'doctor', 'visiting_doctor', 'matron', 'nurse', 'chief_embryologist', 'lab_tech', 'pharmacy', 'stakeholder'])
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ fullName: string; email: string; phone?: string; role?: string; customRoleKey?: string }>(event)

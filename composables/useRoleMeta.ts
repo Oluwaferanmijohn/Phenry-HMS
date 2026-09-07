@@ -66,11 +66,22 @@ export const ROLE_META: Record<string, RoleMeta> = {
       { id: 'appointments', label: 'Appointments', icon: 'calendar' },
       { id: 'investigations', label: 'Investigations & Scans', icon: 'flask' },
       { id: 'surgery', label: 'Surgery & Procedures', icon: 'siren' },
+      { id: 'inpatients', label: 'Inpatients & Rounds', icon: 'bed' },
       { id: 'billing', label: 'Payment Plan Generator', icon: 'cash' },
       { id: 'exec_overview', label: 'Executive Overview', icon: 'grid', section: 'Executive View' },
       { id: 'exec_financials', label: 'Financials', icon: 'cash', section: 'Executive View' },
       { id: 'exec_operations', label: 'Clinical Operations', icon: 'activity', section: 'Executive View' },
       { id: 'exec_growth', label: 'Growth & Acquisition', icon: 'target', section: 'Executive View' },
+    ],
+  },
+  visiting_doctor: {
+    label: 'External Doctor', subtitle: 'Assigned Clinical Workspace', icon: 'stethoscope',
+    nav: [
+      { id: 'waiting', label: 'My Assigned Queue', icon: 'users' },
+      { id: 'patients', label: 'My Patients', icon: 'user' },
+      { id: 'consultation', label: 'Consultation & Prescriptions', icon: 'clipboard' },
+      { id: 'surgery', label: 'Procedures & Operative Notes', icon: 'siren' },
+      { id: 'inpatients', label: 'Assigned Inpatients', icon: 'bed' },
     ],
   },
   matron: {
@@ -81,6 +92,7 @@ export const ROLE_META: Record<string, RoleMeta> = {
       { id: 'consultation', label: 'Consultation', icon: 'clipboard' },
       { id: 'cycles', label: 'Macro Cycle View', icon: 'layers' },
       { id: 'surgery', label: 'Surgery & Procedures', icon: 'siren' },
+      { id: 'inpatients', label: 'Inpatients & Rounds', icon: 'bed' },
       { id: 'staffing', label: 'Staff Allocation & Shifts', icon: 'users' },
       { id: 'beds', label: 'Recovery Beds', icon: 'bed' },
       { id: 'billing', label: 'Payment Plans', icon: 'cash' },
@@ -91,10 +103,12 @@ export const ROLE_META: Record<string, RoleMeta> = {
     nav: [
       { id: 'overview', label: 'Clinical Dashboard', icon: 'grid' },
       { id: 'patients', label: 'Patients', icon: 'user' },
+      { id: 'clerking', label: 'Initial Clerking', icon: 'clipboard' },
       { id: 'cycles', label: 'Macro Cycle View', icon: 'layers' },
       { id: 'vitals', label: 'Patient Vitals', icon: 'activity' },
       { id: 'visit', label: 'Visit Documentation', icon: 'clipboard' },
       { id: 'surgery', label: 'Surgery & Procedures', icon: 'siren' },
+      { id: 'inpatients', label: 'Inpatients & Rounds', icon: 'bed' },
       { id: 'requisitions', label: 'Inventory Requisition', icon: 'box' },
       { id: 'beds', label: 'Recovery Beds', icon: 'bed' },
       { id: 'billing', label: 'Payment Plans', icon: 'cash' },
@@ -119,6 +133,7 @@ export const ROLE_META: Record<string, RoleMeta> = {
   lab_tech: {
     label: 'Lab Technician', subtitle: 'The Data Entry Engine', icon: 'flask',
     nav: [
+      { id: 'overview', label: 'Laboratory Dashboard', icon: 'grid' },
       { id: 'worklist', label: 'Active Worklist', icon: 'grid' },
       { id: 'patients', label: 'Patients', icon: 'user' },
       { id: 'results', label: 'Enter Lab Results', icon: 'flask' },
@@ -150,7 +165,7 @@ export const ROLE_META: Record<string, RoleMeta> = {
 }
 
 export const ROLE_ORDER = [
-  'patient', 'receptionist', 'admin_manager', 'doctor', 'matron', 'nurse',
+  'patient', 'receptionist', 'admin_manager', 'doctor', 'visiting_doctor', 'matron', 'nurse',
   'chief_embryologist', 'lab_tech', 'pharmacy', 'stakeholder',
 ]
 

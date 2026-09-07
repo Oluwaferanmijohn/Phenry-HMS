@@ -29,13 +29,18 @@
           <div class="card card-pad" style="border-color:var(--blue-100); background:var(--blue-50);">
             <div class="flex-between">
               <b style="color:var(--blue-700); font-size:14.5px;"><Icon name="activity" :size="15" /> Current Phase — {{ cycle.stage }}</b>
-              <Badge tone="blue">Cycle Day {{ cycle.cycle_day }}</Badge>
+              <Badge tone="blue">{{ cycle.stage }} Day {{ cycle.cycle_day }}</Badge>
             </div>
             <p style="font-size:12.5px; color:var(--text-700); margin-top:8px;">{{ cycle.physician_notes }}</p>
           </div>
 
           <div class="card card-pad">
             <CycleDayChart :cycle-id="cycle.id" :start-date="cycle.start_date" :can-edit="false" />
+          </div>
+
+          <div v-if="reminders.length" class="card card-pad" style="border-color:var(--amber-200);">
+            <h3 style="font-size:13.5px;"><Icon name="calendar" :size="14" /> My care reminders</h3>
+            <div v-for="reminder in reminders" :key="reminder.id" style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;"><b style="font-size:12.5px;">{{ reminder.title }}</b><p class="cell-muted" style="margin-top:3px;">{{ reminder.body }}</p><small class="cell-muted">Due {{ reminder.due_on }}</small></div>
           </div>
         </div>
 
@@ -59,6 +64,10 @@
               </div>
             </div>
           </div>
+          <hr class="hr" />
+          <h3 style="font-size:13.5px;">Stored reproductive material</h3>
+          <p v-if="!storage.length" class="cell-muted" style="margin-top:7px;">No cryostorage record is currently available in your portal.</p>
+          <div v-for="item in storage" :key="item.asset_type" class="flex-between" style="margin-top:9px;font-size:12px;"><span>{{ item.asset_type }}</span><b>{{ item.total_straws }} stored · {{ item.records }} record{{ item.records === 1 ? '' : 's' }}</b></div>
         </div>
       </div>
     </template>
@@ -75,6 +84,8 @@ const patientId = profile.value!.patient_id!
 
 const stages = ['Baseline', 'Stimulation', 'OPU', 'Transfer']
 const cycle = ref<any>(null)
+const reminders = ref<any[]>([])
+const storage = ref<any[]>([])
 
 const { data } = await useAsyncData(`patient-treatment-${patientId}`, async () => {
   const { data: c } = await supabase
@@ -85,11 +96,17 @@ const { data } = await useAsyncData(`patient-treatment-${patientId}`, async () =
     .order('start_date', { ascending: false })
     .limit(1)
     .maybeSingle()
-  return { cycle: c }
+  const [reminderResult, storageResult] = await Promise.all([
+    supabase.from('patient_reminders').select('id,title,body,due_on').eq('patient_id', patientId).eq('status', 'Due').order('due_on'),
+    supabase.rpc('patient_storage_summary'),
+  ])
+  return { cycle: c, reminders: reminderResult.data || [], storage: storageResult.data || [] }
 })
 
 if (data.value) {
   cycle.value = data.value.cycle
+  reminders.value = data.value.reminders
+  storage.value = data.value.storage
 }
 
 const stageIdx = computed(() => (cycle.value ? stages.indexOf(cycle.value.stage) : -1))

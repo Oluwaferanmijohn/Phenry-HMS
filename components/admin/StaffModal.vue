@@ -57,7 +57,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { ROLE_META } from '~/composables/useRoleMeta'
 import { useToast } from '~/composables/useToast'
 
-const FIXED_STAFF_ROLES = ['receptionist', 'admin_manager', 'doctor', 'matron', 'nurse', 'chief_embryologist', 'lab_tech', 'pharmacy', 'stakeholder']
+const FIXED_STAFF_ROLES = ['receptionist', 'admin_manager', 'doctor', 'visiting_doctor', 'matron', 'nurse', 'chief_embryologist', 'lab_tech', 'pharmacy', 'stakeholder']
 
 const props = defineProps<{ modelValue: boolean; editingStaff?: any | null }>()
 const emit = defineEmits<{ 'update:modelValue': [boolean]; saved: [] }>()
