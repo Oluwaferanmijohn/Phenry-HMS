@@ -1,0 +1,25 @@
+
+ ERROR 
+Another Nuxt dev server is already running:
+
+  URL:     http://[::1]:3000
+  PID:     21908
+  Dir:     C:/Users/pc/Downloads/phenry-Medicotexhhealth/phenry-health-app
+  Started: 12/09/2026, 09:15:36
+
+Run taskkill /PID 21908 /F to stop it, or connect to http://[::1]:3000
+Set NUXT_IGNORE_LOCK=1 to bypass this check.
+
+
+
+ ERROR  Another Nuxt dev is already running (PID 21908).
+
+    at #acquireDevLock (/C:/Users/pc/Downloads/phenry-Medicotexhhealth/phenry-health-app/node_modules/@nuxt/cli/dist/dev-DHhrJk9w.mjs:580:10)
+    at NuxtDevServer.init (/C:/Users/pc/Downloads/phenry-Medicotexhhealth/phenry-health-app/node_modules/@nuxt/cli/dist/dev-DHhrJk9w.mjs:404:23)
+    at async initialize (/C:/Users/pc/Downloads/phenry-Medicotexhhealth/phenry-health-app/node_modules/@nuxt/cli/dist/dev-DHhrJk9w.mjs:753:2)
+    at async Object.run (/C:/Users/pc/Downloads/phenry-Medicotexhhealth/phenry-health-app/node_modules/@nuxt/cli/dist/dev-Cbii5ek4.mjs:198:51)
+    at async runCommand (/C:/Users/pc/Downloads/phenry-Medicotexhhealth/phenry-health-app/node_modules/citty/dist/index.mjs:228:47)
+    at async runCommand (/C:/Users/pc/Downloads/phenry-Medicotexhhealth/phenry-health-app/node_modules/citty/dist/index.mjs:217:5)
+    at async runMain (/C:/Users/pc/Downloads/phenry-Medicotexhhealth/phenry-health-app/node_modules/citty/dist/index.mjs:394:10) 
+
+

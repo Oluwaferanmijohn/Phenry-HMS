@@ -1,6 +1,6 @@
 <template>
   <div class="clerking-page">
-    <div class="page-header"><div><h1>Initial Clinical Clerking</h1><div class="desc">Complete this once at first clinical contact. Repeat observations belong in Patient Vitals.</div></div><div class="page-actions"><ClinicalPatientFinder v-model="patientId" allow-walk-in @selected="selectPatient" /></div></div>
+    <div class="page-header"><div><h1>Initial Clinical Clerking</h1><div class="desc">Complete this once at first clinical contact. Repeat observations belong in Patient Vitals.</div></div><div class="page-actions"><ClinicalPatientFinder v-model="patientId" allow-walk-in :initial-walk-in-open="route.query.walkIn === '1'" @selected="selectPatient" /></div></div>
     <div v-if="!patientId" class="card card-pad"><EmptyState icon="user" title="Select or register a patient" description="Use the finder above. Walk-in patients can be registered and clerked immediately." /></div>
     <form v-else class="card card-pad" @submit.prevent="save">
       <div class="form-section"><span class="section-kicker">Patient</span><b>{{ patientName || patientId }}</b></div>

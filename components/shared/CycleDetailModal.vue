@@ -9,15 +9,13 @@
         <p style="font-size:12px; color:var(--text-700); margin-top:6px;">{{ cycle.physician_notes }}</p>
         <p v-if="cycle.status === 'Closed'" style="font-size:12px; color:var(--text-700); margin-top:6px;"><b>Outcome:</b> {{ cycle.outcome }}</p>
         <div class="flex-between" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--blue-100);">
-          <span class="cell-muted"><Icon name="user" :size="11" /> Cycle Manager: <b style="color:var(--text-900);">{{ cycleManagerName || 'Unassigned' }}</b></span>
-          <span v-if="canManage" class="link" @click="showReassign = !showReassign">Reassign</span>
+          <span class="cell-muted"><Icon name="users" :size="11" /> Nursing team: <b style="color:var(--text-900);">{{ cycleNurseNames || 'Unassigned' }}</b></span>
+          <span v-if="canManage" class="link" @click="showReassign = !showReassign">Manage team</span>
         </div>
-        <div v-if="showReassign" class="flex gap-8" style="margin-top:8px;">
-          <select v-model="reassignNurseId" class="input" style="font-size:12px;">
-            <option value="">Unassigned</option>
-            <option v-for="n in nurses" :key="n.id" :value="n.id">{{ n.full_name }}</option>
-          </select>
-          <button class="btn btn-primary btn-sm" :disabled="reassigning" @click="reassignManager">Save</button>
+        <div v-if="showReassign" class="team-editor">
+          <label v-for="n in nurses" :key="n.id" class="team-option"><input v-model="selectedNurseIds" type="checkbox" :value="n.id" /><span>{{ n.full_name }}</span><small v-if="selectedNurseIds[0] === n.id">Lead nurse</small></label>
+          <p class="cell-muted">Select one or more nurses. The first selected nurse is shown as the lead, but every selected nurse can update the chart and sign a completed day.</p>
+          <button class="btn btn-primary btn-sm" :disabled="reassigning || !selectedNurseIds.length" @click="saveNursingTeam">Save nursing team</button>
         </div>
       </div>
 
@@ -77,10 +75,13 @@ const advancing = ref(false)
 const closing = ref(false)
 const showReassign = ref(false)
 const reassignNurseId = ref('')
+const selectedNurseIds = ref<string[]>([])
+const cycleNurses = ref<any[]>([])
 const reassigning = ref(false)
 
 // Doctor, Matron, and Nurse share operational cycle-management permissions.
 const canEditChart = computed(() => ['doctor', 'matron', 'nurse'].includes(props.role || ''))
+const cycleNurseNames = computed(() => cycleNurses.value.map((entry) => entry.profiles?.full_name).filter(Boolean).join(', ') || cycleManagerName.value)
 
 const nextStage = computed(() => {
   if (!cycle.value || cycle.value.status === 'Closed') return null
@@ -95,9 +96,10 @@ watch(
     showClose.value = false
     outcomeDraft.value = ''
     showReassign.value = false
-    const [cycleRes, nursesRes] = await Promise.all([
+    const [cycleRes, nursesRes, teamRes] = await Promise.all([
       supabase.from('cycles').select('*').eq('id', props.cycleId).single(),
       props.canManage ? supabase.from('profiles').select('id, full_name').eq('role', 'nurse').order('full_name', { ascending: true }) : Promise.resolve({ data: [] }),
+      supabase.from('cycle_nurse_assignments').select('nurse_profile_id,is_primary,profiles:nurse_profile_id(full_name)').eq('cycle_id', props.cycleId).order('is_primary', { ascending: false }),
     ])
     cycle.value = cycleRes.data
     cycleManagerName.value = cycleRes.data?.cycle_manager_id
@@ -105,6 +107,9 @@ watch(
       : ''
     nurses.value = nursesRes.data || []
     reassignNurseId.value = cycleRes.data?.cycle_manager_id || ''
+    cycleNurses.value = teamRes.data || []
+    selectedNurseIds.value = cycleNurses.value.map((entry) => entry.nurse_profile_id)
+    if (!selectedNurseIds.value.length && cycleRes.data?.cycle_manager_id) selectedNurseIds.value = [cycleRes.data.cycle_manager_id]
   },
   { immediate: true }
 )
@@ -167,4 +172,21 @@ async function reassignManager() {
   showReassign.value = false
   emit('updated')
 }
+
+async function saveNursingTeam() {
+  if (!cycle.value || !selectedNurseIds.value.length) return
+  reassigning.value = true
+  const { error } = await supabase.rpc('set_cycle_nursing_team', { p_cycle_id: props.cycleId, p_nurse_ids: selectedNurseIds.value })
+  reassigning.value = false
+  if (error) return
+  cycleNurses.value = selectedNurseIds.value.map((id, index) => ({ nurse_profile_id: id, is_primary: index === 0, profiles: { full_name: nurses.value.find((n) => n.id === id)?.full_name || 'Nurse' } }))
+  cycle.value.cycle_manager_id = selectedNurseIds.value[0]
+  cycleManagerName.value = cycleNurses.value[0]?.profiles?.full_name || ''
+  showReassign.value = false
+  emit('updated')
+}
 </script>
+
+<style scoped>
+.team-editor{display:flex;flex-direction:column;gap:7px;margin-top:10px;padding:10px;border:1px solid var(--blue-100);border-radius:9px;background:#fff}.team-option{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;background:var(--bg);font-size:12px}.team-option small{color:var(--blue-600);font-size:9.5px;font-weight:700}.team-editor p{font-size:10.5px;line-height:1.45}
+</style>

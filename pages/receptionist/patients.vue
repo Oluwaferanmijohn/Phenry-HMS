@@ -58,6 +58,11 @@
         <b style="font-size:13px;">Contact</b>
         <p style="font-size:12.5px; margin-top:6px; color:var(--text-700);"><Icon name="phone" :size="11" /> {{ activeProfile.phone || '—' }} &nbsp; <Icon name="mail" :size="11" /> {{ activeProfile.email || '—' }}</p>
         <p style="font-size:12.5px; color:var(--text-700);">{{ activeProfile.address || '—' }}</p>
+        <div class="whatsapp-card">
+          <div class="field"><label>WhatsApp reminder number</label><input v-model="activeProfile.whatsapp_phone" class="input" placeholder="e.g. +2348012345678" /></div>
+          <label class="checkbox-row"><input v-model="activeProfile.whatsapp_opt_in" type="checkbox" /><span>Patient has agreed to receive care reminders on WhatsApp.</span></label>
+          <button class="btn btn-secondary btn-sm" :disabled="savingWhatsapp" @click="saveWhatsapp"><Icon name="check-circle" :size="12" /> {{ savingWhatsapp ? 'Saving…' : 'Save WhatsApp preference' }}</button>
+        </div>
         <template v-if="activeProfile.spouse_patient_id">
           <hr class="hr" />
           <b style="font-size:13px;">Spouse / Partner</b>
@@ -139,6 +144,7 @@ const showSpouseLink = ref(false)
 const spouseLinkTarget = ref({ patientId: '', patientName: '' })
 const resettingPassword = ref(false)
 const resetCredential = ref<{ patientId: string; patientName: string; temporaryPassword: string } | null>(null)
+const savingWhatsapp = ref(false)
 
 await useAsyncData('receptionist-patients', async () => {
   const [patientsRes, doctorsRes] = await Promise.all([
@@ -208,6 +214,16 @@ function closeResetCredential() {
   resetCredential.value = null
 }
 
+async function saveWhatsapp() {
+  if (!activeProfile.value?.patient_id) return
+  if (activeProfile.value.whatsapp_opt_in && !String(activeProfile.value.whatsapp_phone || '').trim()) return toast('Enter a WhatsApp number before enabling reminders.', 'warn')
+  savingWhatsapp.value = true
+  const { error } = await supabase.from('bio_details').update({ whatsapp_phone: String(activeProfile.value.whatsapp_phone || '').trim() || null, whatsapp_opt_in: Boolean(activeProfile.value.whatsapp_opt_in) }).eq('patient_id', activeProfile.value.patient_id)
+  savingWhatsapp.value = false
+  if (error) return toast(error.message.includes('whatsapp_') ? 'Run the latest WhatsApp database migration first.' : error.message, 'warn')
+  toast('WhatsApp reminder preference saved.', 'success')
+}
+
 watch(() => route.query.patient, (patientId) => {
   if (typeof patientId === 'string') void openProfile(patientId)
 }, { immediate: true })
@@ -226,5 +242,6 @@ watch(() => route.query.patient, (patientId) => {
 .portal-access-card span, .credential-box span { display:block; margin-bottom:3px; color:var(--text-500); font-size:9.5px; text-transform:uppercase; }
 .portal-access-card b, .credential-box b { font-size:12px; }
 .credential-box { display:flex; flex-direction:column; gap:11px; padding:14px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); }
-@media (max-width:700px) { .portal-access-card { grid-template-columns:1fr; }.patient-profile-hero { align-items:flex-start; }.patient-profile-facts { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.whatsapp-card { display:grid; grid-template-columns:minmax(180px,1fr) minmax(220px,1.4fr) auto; align-items:end; gap:10px; margin-top:12px; padding:11px 12px; border:1px solid var(--green-200); border-radius:var(--radius-sm); background:var(--green-50); }.whatsapp-card .field{margin:0}.whatsapp-card .checkbox-row{margin:0 0 5px}
+@media (max-width:700px) { .portal-access-card,.whatsapp-card { grid-template-columns:1fr; }.patient-profile-hero { align-items:flex-start; }.patient-profile-facts { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 </style>

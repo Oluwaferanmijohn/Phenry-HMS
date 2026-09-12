@@ -6,6 +6,7 @@
       <StatCard icon="siren" label="Pending Surgeries" :value="surgeries.length" :trend="surgeries[0] ? 'Next: ' + formatTime12(surgeries[0].time) : 'None scheduled'" />
       <StatCard icon="bed" label="Available Recovery Beds" :value="`${freeBeds} / ${beds.length}`" :trend="freeBeds < 3 ? 'Running low' : 'Healthy capacity'" :trend-tone="freeBeds < 3 ? 'down' : 'up'" />
     </div>
+    <TodayAppointmentsCard role="matron" style="margin-bottom:18px;" />
     <div class="grid grid-main-side">
       <div class="card">
         <div class="card-header"><h3><Icon name="calendar" :size="15" /> Procedure &amp; Surgery Schedule</h3><span class="link" @click="$router.push('/matron/surgery')">View full</span></div>

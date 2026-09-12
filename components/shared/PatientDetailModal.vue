@@ -35,6 +35,17 @@
       </div>
       <div v-if="patientRecord.past_surgeries?.length" style="margin-top:8px;"><div class="muted" style="font-size:10.5px;">PAST SURGERIES</div><div style="font-size:12px;">{{ formatPastSurgeries(patientRecord.past_surgeries) }}</div></div>
       <hr class="hr" />
+      <div class="flex-between"><b style="font-size:12.5px;"><Icon name="clipboard" :size="12" /> Initial Clerking</b><Badge v-if="initialAssessments.length" tone="blue">{{ initialAssessments.length }} record{{ initialAssessments.length === 1 ? '' : 's' }}</Badge></div>
+      <div v-if="initialAssessments.length" class="clerking-list">
+        <details v-for="(assessment, index) in initialAssessments" :key="assessment.id" class="clerking-record" :open="index === 0">
+          <summary><span>{{ index === 0 ? 'Latest clerking' : 'Earlier clerking' }} · {{ fmtDate(assessment.assessed_on || assessment.created_at) }}</span><small>{{ staffName(assessment.assessed_by) }}</small></summary>
+          <div v-if="historyItems(assessment.medical_history).length" class="clerking-section"><b>Medical history</b><div class="clerking-grid"><div v-for="item in historyItems(assessment.medical_history)" :key="item.label"><span>{{ item.label }}</span><p>{{ item.value }}</p></div></div></div>
+          <div v-if="historyItems(assessment.fertility_history).length" class="clerking-section"><b>Fertility history</b><div class="clerking-grid"><div v-for="item in historyItems(assessment.fertility_history)" :key="item.label"><span>{{ item.label }}</span><p>{{ item.value }}</p></div></div></div>
+          <div v-if="assessment.notes" class="clerking-section"><b>Clinical notes</b><p>{{ assessment.notes }}</p></div>
+        </details>
+      </div>
+      <p v-else class="muted" style="font-size:12px; margin-top:7px;">No initial clerking has been recorded yet.</p>
+      <hr class="hr" />
       <div class="flex-between"><b style="font-size:12.5px;"><Icon name="activity" :size="12" /> Nursing Vitals &amp; Intake</b><Badge v-if="latestNurseVisit" tone="blue">Latest {{ fmtDate(latestNurseVisit.visit_date) }}</Badge></div>
       <div v-if="latestNurseVisit" style="margin-top:9px;">
         <div class="vitals-grid">
@@ -62,14 +73,15 @@
       </div>
       <p v-else class="muted" style="font-size:12px; margin-top:7px;">No nursing observations recorded yet.</p>
       <hr class="hr" />
-      <b style="font-size:12.5px;"><Icon name="layers" :size="12" /> Treatment Cycle</b>
-      <p style="font-size:12.5px; margin-top:6px; color:var(--text-700);">
-        {{ cycle ? `${cycle.type} — ${cycle.stage} (Day ${cycle.cycle_day}) · ${cycle.protocol}` : 'No active treatment cycle.' }}
-      </p>
-      <p v-if="cycle" class="cell-muted" style="margin-top:4px;"><Icon name="user" :size="11" /> Cycle Manager: {{ cycleManagerName || 'Unassigned' }}</p>
-      <div v-if="cycle" style="margin-top:12px;">
+      <details v-if="cycle" class="cycle-disclosure">
+        <summary>
+          <span><Icon name="layers" :size="13" /><span><b>Fertility Treatment Chart</b><small>{{ cycle.type }} — {{ cycle.stage }} (Day {{ cycle.cycle_day }}) · {{ cycle.protocol }}</small></span></span>
+          <span class="cycle-open-label">Click to view chart <Icon name="chevron-right" :size="12" /></span>
+        </summary>
+        <p class="cell-muted cycle-manager"><Icon name="user" :size="11" /> Lead nurse: {{ cycleManagerName || 'Unassigned' }}</p>
         <CycleDayChart :cycle-id="cycle.id" :start-date="cycle.start_date" :can-edit="false" />
-      </div>
+      </details>
+      <div v-else class="cycle-empty"><Icon name="layers" :size="13" /><span><b>Treatment Cycle</b><small>No active treatment cycle.</small></span></div>
       <hr class="hr" />
       <b style="font-size:12.5px;"><Icon name="syringe" :size="12" /> Transfer &amp; Cryopreservation</b>
       <div v-if="embryosTransferredTotal > 0 || cryoStoredCount > 0" class="grid grid-2" style="margin:8px 0; gap:10px;">
@@ -240,6 +252,7 @@ const spouseSummary = ref<any>(null)
 const patientPhotoUrl = ref('')
 const patientRecord = computed(() => props.patient ? { ...props.patient, ...(patientBio.value || {}) } : null)
 const nurseVisits = ref<any[]>([])
+const initialAssessments = ref<any[]>([])
 const staffNames = ref<Map<string, string>>(new Map())
 const assignedDoctorName = computed(() => {
   const id = patientRecord.value?.assigned_doctor_id
@@ -280,6 +293,7 @@ watch(
       spouseSummary.value = null
       patientPhotoUrl.value = ''
       nurseVisits.value = []
+      initialAssessments.value = []
       staffNames.value = new Map()
       surgeries.value = []
       transferCryoEvents.value = []
@@ -297,9 +311,10 @@ watch(
           return [] as ImagingStudy[]
         })
       : Promise.resolve([] as ImagingStudy[])
-    const [bioRes, nurseVisitRes, surgeryRes, transferRes, cryoRes, imagingRes, spouseRes, photoUrl] = await Promise.all([
+    const [bioRes, nurseVisitRes, assessmentRes, surgeryRes, transferRes, cryoRes, imagingRes, spouseRes, photoUrl] = await Promise.all([
       supabase.from('bio_details').select('*').eq('patient_id', patientId).maybeSingle(),
       supabase.from('nurse_visits').select('*').eq('patient_id', patientId).order('created_at', { ascending: false }).limit(8),
+      supabase.from('patient_initial_assessments').select('*').eq('patient_id', patientId).order('assessed_on', { ascending: false }).limit(6),
       supabase.from('surgery_schedule').select('*').eq('patient_id', patientId).order('date', { ascending: false }),
       supabase.from('transfer_cryo_schedule').select('*').eq('patient_id', patientId).order('scheduled_date', { ascending: false }),
       supabase.from('cryo_records').select('straws').eq('patient_id', patientId).eq('asset_type', 'Embryo').eq('status', 'Stored'),
@@ -311,9 +326,11 @@ watch(
     spouseSummary.value = spouseRes.data || null
     patientPhotoUrl.value = photoUrl
     nurseVisits.value = nurseVisitRes.data || []
+    initialAssessments.value = assessmentRes.data || []
     staffNames.value = await resolveCycleManagerNames(supabase, [
       patientBio.value?.assigned_doctor_id,
       ...nurseVisits.value.map((visit) => visit.documented_by),
+      ...initialAssessments.value.map((assessment) => assessment.assessed_by),
     ])
     surgeries.value = surgeryRes.data || []
     transferCryoEvents.value = transferRes.data || []
@@ -378,6 +395,21 @@ function nurseName(id: string | null | undefined) {
   return id ? staffNames.value.get(id) || 'Nursing staff' : 'Nursing staff'
 }
 
+function staffName(id: string | null | undefined) {
+  return id ? staffNames.value.get(id) || 'Clinical staff' : 'Clinical staff'
+}
+
+function historyItems(record: Record<string, any> | null | undefined) {
+  if (!record) return []
+  return Object.entries(record)
+    .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '' && String(value) !== 'Not asked')
+    .map(([key, value]) => ({
+      label: key.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (letter) => letter.toUpperCase()),
+      value: Array.isArray(value) ? value.join(', ') : typeof value === 'object' ? Object.values(value).filter(Boolean).join(' · ') : String(value),
+    }))
+    .filter((item) => item.value.trim() !== '')
+}
+
 function compactVitalSummary(visit: any) {
   return [bloodPressure(visit), withUnit(visit.pulse_bpm, 'bpm'), withUnit(visit.respiratory_rate_bpm, '/min'), withUnit(visit.temperature_c, '°C'), withUnit(visit.spo2_pct, '%'), withUnit(visit.weight_kg, 'kg')].filter((value) => value !== '—').join(' · ') || 'No numeric observations recorded.'
 }
@@ -433,10 +465,14 @@ function formatPastSurgeries(items: any[]) {
 .visit-history-item { margin-top:8px; padding:8px 10px; border:1px solid var(--border); border-radius:7px; }
 .visit-history-item summary { display:flex; align-items:center; justify-content:space-between; gap:8px; cursor:pointer; color:var(--text-700); font-size:11.5px; font-weight:650; }
 .visit-history-item p { margin-top:6px; color:var(--text-700); font-size:11.5px; line-height:1.45; white-space:pre-wrap; }
+.clerking-list{display:flex;flex-direction:column;gap:7px;margin-top:8px}.clerking-record{border:1px solid var(--border);border-radius:8px;overflow:hidden}.clerking-record summary{display:flex;justify-content:space-between;gap:10px;padding:9px 11px;background:var(--bg);cursor:pointer;font-size:11.5px;font-weight:700}.clerking-record summary small{color:var(--text-500);font-weight:500}.clerking-section{padding:9px 11px;border-top:1px solid var(--border)}.clerking-section>b{font-size:11px;color:var(--blue-600)}.clerking-section>p{margin-top:5px;color:var(--text-700);font-size:11.5px;line-height:1.45;white-space:pre-wrap}.clerking-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:7px}.clerking-grid>div{padding:7px 8px;border-radius:7px;background:var(--bg)}.clerking-grid span{display:block;color:var(--text-500);font-size:9.5px;text-transform:uppercase}.clerking-grid p{margin-top:3px;color:var(--text-800);font-size:11.5px;white-space:pre-wrap}
 .spouse-detail-link { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; margin-top:8px; padding:10px 12px; border:1px solid var(--blue-100); border-radius:var(--radius-sm); background:var(--blue-50); text-align:left; font-family:inherit; }
 .spouse-detail-link b, .spouse-detail-link span { display:block; }
 .spouse-detail-link b { font-size:12.5px; }
 .spouse-detail-link > div > span { margin-top:3px; color:var(--text-500); font-size:10.5px; }
 .spouse-detail-link > .link { display:flex; align-items:center; gap:4px; color:var(--blue-600); font-size:11px; font-weight:700; white-space:nowrap; }
-@media (max-width:700px) { .patient-photo-hero { align-items:flex-start; }.patient-hero-facts { grid-template-columns:repeat(2,minmax(0,1fr)); }.registration-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }.vitals-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.cycle-disclosure { border:1px solid var(--border); border-radius:10px; background:#fff; overflow:hidden; }
+.cycle-disclosure summary { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:12px 14px; cursor:pointer; list-style:none; background:var(--bg); }
+.cycle-disclosure summary::-webkit-details-marker { display:none; }.cycle-disclosure summary > span:first-child,.cycle-empty { display:flex; align-items:center; gap:9px; }.cycle-disclosure summary span span,.cycle-empty span { display:flex; flex-direction:column; gap:3px; }.cycle-disclosure summary b,.cycle-empty b { font-size:12.5px; }.cycle-disclosure summary small,.cycle-empty small { color:var(--text-500); font-size:10.5px; }.cycle-open-label { display:flex; align-items:center; gap:4px; color:var(--blue-600); font-size:10.5px; font-weight:700; white-space:nowrap; }.cycle-disclosure[open] .cycle-open-label svg { transform:rotate(90deg); }.cycle-manager { padding:10px 14px 0; }.cycle-disclosure :deep(.cycle-chart) { margin:10px; }.cycle-empty { padding:11px 13px; border:1px solid var(--border); border-radius:9px; background:var(--bg); }
+@media (max-width:700px) { .patient-photo-hero { align-items:flex-start; }.patient-hero-facts { grid-template-columns:repeat(2,minmax(0,1fr)); }.registration-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }.vitals-grid,.clerking-grid { grid-template-columns:repeat(1,minmax(0,1fr)); } }
 </style>

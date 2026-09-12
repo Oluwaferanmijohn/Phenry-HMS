@@ -34,6 +34,10 @@
           <div class="field"><label>Primary Phone Number</label><input v-model="draft.phone" class="input" placeholder="(555) 000-0000" /></div>
           <div class="field"><label>Email Address</label><input v-model="draft.email" class="input" placeholder="jane.doe@example.com" /></div>
         </div>
+        <div class="form-row">
+          <div class="field"><label>WhatsApp Number</label><input v-model="draft.whatsappPhone" class="input" placeholder="e.g. +2348012345678" /></div>
+          <label class="checkbox-row whatsapp-consent"><input v-model="draft.whatsappOptIn" type="checkbox" /><span>Patient agrees to receive appointment and daily treatment reminders on WhatsApp.</span></label>
+        </div>
         <div class="field"><label>Home Address</label><textarea v-model="draft.addr" class="input" rows="2" placeholder="Street Address, City, State" /></div>
         <div class="card-pad" style="background:var(--blue-50); border:1px solid var(--blue-100); border-radius:var(--radius-sm); margin-top:6px;">
           <b style="font-size:12.5px; color:var(--red-600);">✳ Emergency Contact</b>
@@ -77,6 +81,7 @@
             <div class="field"><label>Partner Phone</label><input v-model="partner.phone" class="input" /></div>
             <div class="field"><label>Partner Email</label><input v-model="partner.email" class="input" type="email" /></div>
           </div>
+          <div class="form-row"><div class="field"><label>Partner WhatsApp Number</label><input v-model="partner.whatsappPhone" class="input" placeholder="e.g. +2348012345678" /></div><label class="checkbox-row whatsapp-consent"><input v-model="partner.whatsappOptIn" type="checkbox" /><span>Partner agrees to WhatsApp care reminders.</span></label></div>
           <div class="field"><label>Partner Address</label><textarea v-model="partner.address" class="input" rows="2" :placeholder="draft.addr || 'Leave blank to use the primary patient address'" /></div>
         </div>
       </div>
@@ -135,14 +140,14 @@ const partnerPhotoFile = ref<File | null>(null)
 
 const draft = reactive({
   first: '', last: '', dob: '', sex: 'F',
-  phone: '', email: '', addr: '', ecName: '', ecRel: '', ecPhone: '',
+  phone: '', whatsappPhone: '', whatsappOptIn: false, email: '', addr: '', ecName: '', ecRel: '', ecPhone: '',
   ref: 'Instagram Ad', consent: true,
 })
 const spouseMode = ref<'none' | 'existing' | 'new'>('none')
 const existingSpouseId = ref('')
 const spouseSearch = ref('')
 const spousePatients = ref<any[]>([])
-const partner = reactive({ first: '', last: '', dob: '', sex: 'M', phone: '', email: '', address: '' })
+const partner = reactive({ first: '', last: '', dob: '', sex: 'M', phone: '', whatsappPhone: '', whatsappOptIn: false, email: '', address: '' })
 
 await useAsyncData('registration-spouse-directory', async () => {
   const { data } = await supabase.rpc('reception_spouse_directory', { p_search: '' })
@@ -169,12 +174,20 @@ function nextStep() {
     toast('First name, surname, and date of birth are required', 'warn')
     return
   }
+  if (step.value === 2 && draft.whatsappOptIn && !draft.whatsappPhone.trim()) {
+    toast('Enter the patient WhatsApp number before enabling reminders.', 'warn')
+    return
+  }
   if (step.value === 3 && spouseMode.value === 'existing' && !existingSpouseId.value) {
     toast('Select the existing spouse, or choose another spouse option.', 'warn')
     return
   }
   if (step.value === 3 && spouseMode.value === 'new' && (!partner.first.trim() || !partner.last.trim() || !partner.dob)) {
     toast('Partner first name, surname, and date of birth are required.', 'warn')
+    return
+  }
+  if (step.value === 3 && spouseMode.value === 'new' && partner.whatsappOptIn && !partner.whatsappPhone.trim()) {
+    toast('Enter the partner WhatsApp number before enabling reminders.', 'warn')
     return
   }
   step.value++
@@ -216,6 +229,12 @@ async function submit() {
 
   const mrn = data.patient_id as string
   const spouseMrn = data.spouse_patient_id as string | null
+  const whatsappUpdates = [
+    supabase.from('bio_details').update({ whatsapp_phone: draft.whatsappPhone.trim() || null, whatsapp_opt_in: draft.whatsappOptIn }).eq('patient_id', mrn),
+    ...(data.spouse_created && spouseMrn ? [supabase.from('bio_details').update({ whatsapp_phone: partner.whatsappPhone.trim() || null, whatsapp_opt_in: partner.whatsappOptIn }).eq('patient_id', spouseMrn)] : []),
+  ]
+  const whatsappResults = await Promise.all(whatsappUpdates)
+  if (whatsappResults.some((result) => result.error)) toast('Registration succeeded, but WhatsApp consent details need the latest database update.', 'warn')
   const newlyRegisteredIds = [mrn, data.spouse_created ? spouseMrn : null].filter(Boolean) as string[]
   const consentResults = await Promise.all(newlyRegisteredIds.map((patientId) => supabase.rpc('record_registration_consent', { p_patient_id: patientId })))
   if (consentResults.some((result) => result.error)) toast('Registration succeeded, but a consent timestamp could not be recorded', 'warn')
@@ -249,8 +268,8 @@ async function submit() {
 
   submitting.value = false
   step.value = 1
-  Object.assign(draft, { first: '', last: '', dob: '', sex: 'F', phone: '', email: '', addr: '', ecName: '', ecRel: '', ecPhone: '', ref: 'Instagram Ad', consent: true })
-  Object.assign(partner, { first: '', last: '', dob: '', sex: 'M', phone: '', email: '', address: '' })
+  Object.assign(draft, { first: '', last: '', dob: '', sex: 'F', phone: '', whatsappPhone: '', whatsappOptIn: false, email: '', addr: '', ecName: '', ecRel: '', ecPhone: '', ref: 'Instagram Ad', consent: true })
+  Object.assign(partner, { first: '', last: '', dob: '', sex: 'M', phone: '', whatsappPhone: '', whatsappOptIn: false, email: '', address: '' })
   spouseMode.value = 'none'
   existingSpouseId.value = ''
   spouseSearch.value = ''

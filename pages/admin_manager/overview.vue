@@ -7,6 +7,7 @@
       <StatCard icon="user" label="Registered Patients" :value="patientCount" />
       <StatCard icon="activity" label="Active Cycles" :value="activeCyclesCount" trend="in progress" />
     </div>
+    <WhatsAppGatewayCard compact style="margin-bottom:18px;" />
     <div class="grid grid-main-side">
       <div class="card">
         <div class="card-header"><h3><Icon name="cash" :size="15" /> Pending Approvals</h3><span class="link" @click="$router.push('/admin_manager/financial')">View all</span></div>

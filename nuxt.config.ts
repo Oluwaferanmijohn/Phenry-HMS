@@ -41,6 +41,7 @@ export default defineNuxtConfig({
     // need elevated access (creating staff/patient auth users, etc — added
     // starting with the Receptionist role's registration flow).
     supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    whatsappWorkerSecret: process.env.WHATSAPP_WORKER_SECRET,
     public: {
       supabaseUrl: process.env.SUPABASE_URL,
       clinicName: 'Phenry Health',

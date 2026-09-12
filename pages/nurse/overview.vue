@@ -1,6 +1,8 @@
 <template>
   <div>
-    <div class="page-header"><div><h1>Clinical Dashboard</h1><div class="desc">{{ todayLabel }}</div></div></div>
+    <div class="page-header"><div><h1>Clinical Dashboard</h1><div class="desc">{{ todayLabel }}</div></div><NuxtLink to="/nurse/clerking?walkIn=1" class="btn btn-primary"><Icon name="plus" :size="13" /> Register walk-in</NuxtLink></div>
+
+    <TodayAppointmentsCard role="nurse" style="margin-bottom:18px;" />
 
     <div class="card" style="margin-bottom:18px;">
       <div class="card-header"><h3><Icon name="clipboard" :size="15" /> My Shift Checklist</h3><Badge tone="amber">{{ pendingCount }} Pending</Badge></div>
@@ -21,7 +23,7 @@
       <div class="card">
         <div class="card-header"><h3><Icon name="activity" :size="15" /> Quick Vitals</h3><NuxtLink :to="`/nurse/vitals${vitalsPatient ? `?patient=${vitalsPatient}` : ''}`" class="btn btn-secondary btn-sm">Open full vitals</NuxtLink></div>
         <div class="card-body">
-          <div class="field"><label>Select Patient</label><select v-model="vitalsPatient" class="input"><option v-for="p in patients" :key="p.patient_id" :value="p.patient_id">{{ p.full_name }}</option></select></div>
+          <div class="field"><label>Select Patient</label><ClinicalPatientFinder v-model="vitalsPatient" allow-walk-in @selected="onVitalsPatient" /></div>
           <div class="form-row">
             <div class="field"><label>Blood Pressure</label><input v-model="vitals.bp" class="input" placeholder="120/80" /></div>
             <div class="field"><label>Temperature (°C)</label><input v-model="vitals.temp" class="input" type="number" step="0.1" placeholder="36.8" /></div>
@@ -164,6 +166,9 @@ async function saveVitals() {
   } finally {
     savingVitals.value = false
   }
+}
+function onVitalsPatient(entry: any) {
+  if (!patients.value.some((patient) => patient.patient_id === entry.patient_id)) patients.value.push(entry)
 }
 
 const reqUrgency = ref('Routine')

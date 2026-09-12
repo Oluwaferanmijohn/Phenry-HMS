@@ -3,25 +3,30 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "nuxt dev",
+    "dev": "nuxt dev --port 3027",
     "build": "nuxt build",
     "typecheck": "nuxt typecheck",
     "test": "node --test tests/*.test.mjs",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "whatsapp:worker": "node scripts/whatsapp-baileys-worker.mjs"
   },
   "dependencies": {
     "@nuxtjs/supabase": "^1.4.0",
     "@supabase/supabase-js": "^2.45.4",
     "@vueuse/core": "^11.1.0",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
     "date-fns": "^3.6.0",
     "nuxt": "^4.5.2",
+    "pino": "^10.3.1",
+    "qrcode": "^1.5.4",
     "vue": "^3.4.38"
   },
   "devDependencies": {
     "@nuxtjs/tailwindcss": "^6.12.1",
     "@types/node": "^22.10.0",
+    "@types/qrcode": "^1.5.6",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.45",
     "tailwindcss": "^3.4.10",

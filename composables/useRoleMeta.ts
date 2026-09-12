@@ -50,6 +50,7 @@ export const ROLE_META: Record<string, RoleMeta> = {
       { id: 'staff', label: 'Staff Management', icon: 'users' },
       { id: 'financial', label: 'Financial Approvals', icon: 'cash' },
       { id: 'settings', label: 'Global Settings', icon: 'settings' },
+      { id: 'whatsapp', label: 'WhatsApp Setup', icon: 'message' },
       { id: 'audit', label: 'Security & Audit Log', icon: 'shield' },
       { id: 'exec_overview', label: 'Executive Overview', icon: 'grid', section: 'Executive View' },
       { id: 'exec_financials', label: 'Financials', icon: 'cash', section: 'Executive View' },

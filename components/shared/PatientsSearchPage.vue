@@ -9,18 +9,22 @@
       <div style="margin-top:12px; text-align:center;"><button class="btn btn-secondary btn-sm" @click="retryDirectory">Try Again</button></div>
     </div>
     <div v-else class="card">
-      <div style="padding:14px 20px; border-bottom:1px solid var(--border);">
-        <div class="search-box" style="max-width:320px;">
+      <div class="patient-filter-bar">
+        <div class="search-box patient-page-search">
           <Icon name="search" :size="14" />
-          <input v-model="search" placeholder="Search name or ID…" />
+          <input v-model="search" placeholder="Search name, ID, or phone…" />
         </div>
+        <select v-model="period" class="input"><option value="all">Any date</option><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="last_week">Last 7 days</option><option value="date">Choose date</option></select>
+        <input v-if="period === 'date'" v-model="customDate" class="input" type="date" />
+        <select v-model="patientType" class="input"><option value="all">All patient types</option><option value="walk_in">Walk-in</option><option value="appointment">Appointment</option><option value="registered">Registered only</option></select>
       </div>
       <table class="data-table">
-        <thead><tr><th>Patient</th><th>ID</th><th>Age</th><th>Status</th><th>Active Cycle</th><th></th></tr></thead>
+        <thead><tr><th>Patient</th><th>ID</th><th>Type / Date</th><th>Age</th><th>Status</th><th>Active Cycle</th><th></th></tr></thead>
         <tbody>
           <tr v-for="p in filtered" :key="p.patient_id" class="clickable" @click="openDetail(p.patient_id)">
             <td class="cell-strong">{{ p.full_name }}</td>
             <td class="cell-muted mono">{{ p.patient_id }}</td>
+            <td><Badge :tone="patientTypeOf(p) === 'walk_in' ? 'amber' : 'blue'">{{ typeLabel(patientTypeOf(p)) }}</Badge><div class="cell-muted" style="margin-top:3px;">{{ p.event_date || p.registered_on || '—' }}</div></td>
             <td>{{ computeAge(p.dob) }}</td>
             <td><StatusBadge :status="p.status" /></td>
             <td class="cell-muted">{{ activeCycleByPatient[p.patient_id] ? `${activeCycleByPatient[p.patient_id].type} — ${activeCycleByPatient[p.patient_id].stage}` : 'None' }}</td>
@@ -81,6 +85,10 @@ const route = useRoute()
 const caps = computed(() => ROLE_PATIENT_CAPS[profile.value?.role ?? ''] || {})
 
 const search = ref('')
+const period = ref('all')
+const customDate = ref('')
+const patientType = ref('all')
+const searchedPatients = ref<any[] | null>(null)
 const patients = ref<any[]>([])
 const activeCycleByPatient = ref<Record<string, any>>({})
 const showDetail = ref(false)
@@ -138,13 +146,26 @@ async function retryDirectory() {
 }
 
 const filtered = computed(() => {
+  if (searchedPatients.value) return searchedPatients.value
   const q = search.value.toLowerCase()
   if (!q) return patients.value
   return patients.value.filter((p) => (p.full_name + p.patient_id).toLowerCase().includes(q))
 })
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+watch([search, period, customDate, patientType], () => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(async () => {
+    if (!search.value.trim() && period.value === 'all' && patientType.value === 'all') { searchedPatients.value = null; return }
+    const { data, error } = await supabase.rpc('clinical_patient_search_v2', { p_query: search.value.trim(), p_period: period.value, p_custom_date: period.value === 'date' ? customDate.value || null : null, p_patient_type: patientType.value, p_limit: 100 })
+    if (error) { toast('Patient filters need the latest database update.', 'warn'); return }
+    searchedPatients.value = data || []
+  }, 220)
+})
+function patientTypeOf(patient: any) { return patient.patient_type || (String(patient.referral_source || '').toLowerCase().includes('walk-in') ? 'walk_in' : 'registered') }
+function typeLabel(value: string) { return value === 'walk_in' ? 'Walk-in' : value === 'appointment' ? 'Appointment' : 'Registered' }
 
 async function openDetail(patientId: string) {
-  const selected = patients.value.find((p) => p.patient_id === patientId)
+  const selected = filtered.value.find((p) => p.patient_id === patientId) || patients.value.find((p) => p.patient_id === patientId)
   if (!selected) return
   activePatient.value = selected
   showDetail.value = true
@@ -226,3 +247,7 @@ watch(() => [route.query.patient, route.query.linkedFrom] as const, ([patientId,
   else if (typeof linkedFrom === 'string') void openLinkedSpouseFrom(linkedFrom, patientId)
 }, { immediate: true })
 </script>
+
+<style scoped>
+.patient-filter-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:14px 20px;border-bottom:1px solid var(--border)}.patient-page-search{flex:1;min-width:230px;max-width:420px}.patient-filter-bar>.input{width:auto;min-width:125px}@media(max-width:700px){.patient-page-search{min-width:100%;max-width:none}.patient-filter-bar>.input{flex:1;min-width:120px}}
+</style>
